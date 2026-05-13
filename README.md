@@ -55,29 +55,54 @@ Single-chain DEX adapters (`1inch`, `0x`, `OpenOcean`) reject cross-chain reques
 
 ## Signer Abstraction
 
-The library uses per-chain `Signer` interfaces instead of raw private keys, so it works with any key management solution — plaintext keys, MPC wallets, TEE enclaves, HSMs, etc.
+The library uses a single `Signer` interface instead of raw private keys, so it works with any key management solution — plaintext keys, MPC wallets, TEE enclaves, HSMs, etc.
 
 ```go
-// Built-in: wraps a raw private key
-signer, _ := domain.NewEVMPrivateKeySigner(privateKeyBytes)
-
-// Custom: implement the interface for MPC/TEE wallets
-type MyMPCSigner struct { /* ... */ }
-func (s *MyMPCSigner) Address() common.Address                  { /* ... */ }
-func (s *MyMPCSigner) SignTx(tx *types.Transaction, chainID *big.Int) (*types.Transaction, error) {
-    // Call your MPC/TEE signing service
+type Signer interface {
+    PublicKey(ctx context.Context) ([]byte, error)
+    Sign(ctx context.Context, payload []byte) ([]byte, error)
 }
 ```
 
-Available interfaces and implementations:
+### Built-in Signers
 
-| Chain | Interface | PrivateKeySigner Constructor |
-| --- | --- | --- |
-| EVM | `domain.EVMSigner` | `domain.NewEVMPrivateKeySigner(privateKey []byte)` |
-| Solana | `domain.SolanaSigner` | `domain.NewSolanaPrivateKeySigner(privateKey []byte)` |
-| Tron | `domain.TronSigner` | `domain.NewTronPrivateKeySigner(privateKey []byte)` |
+The library provides built-in signers for EVM, Solana, and Tron chains:
 
-The library never stores, logs, or transmits private keys. `PrivateKeySigner` signs entirely in-memory.
+```go
+// EVM (Ethereum, Base, Polygon, etc.) - secp256k1
+signer, err := domain.NewEVMPrivateKeySigner(privateKeyBytes) // 32 bytes
+
+// Solana - ed25519
+signer, err := domain.NewSolanaPrivateKeySigner(privateKeyBytes) // 64 bytes
+
+// Tron - secp256k1 (same curve as EVM, different address format)
+signer, err := domain.NewTronPrivateKeySigner(privateKeyBytes) // 32 bytes
+```
+
+Each signer provides:
+- `Address()` - returns the chain-specific address (hex for EVM, base58 for Solana/Tron)
+- `PublicKey(ctx)` - returns compressed public key bytes
+- `Sign(ctx, payload)` - signs the payload using the appropriate curve
+
+### Custom Signers
+
+Implement the interface for custom key management solutions:
+
+```go
+type MySigner struct {
+    key *ecdsa.PrivateKey
+}
+
+func (s *MySigner) PublicKey(_ context.Context) ([]byte, error) {
+    return crypto.CompressPubkey(&s.key.PublicKey), nil
+}
+
+func (s *MySigner) Sign(_ context.Context, payload []byte) ([]byte, error) {
+    return crypto.Sign(payload, s.key)
+}
+```
+
+The library never stores, logs, or transmits private keys. Signing happens entirely in-memory.
 
 ## Usage
 
@@ -92,7 +117,8 @@ r.RegisterSimulator(domain.ChainEthereum, evmSim)
 quote, err := r.SelectBest(ctx, req, router.StrategyBestAmount)
 if err != nil { return err }
 
-signer, _ := domain.NewEVMPrivateKeySigner(privateKeyBytes)
+signer, err := domain.NewEVMPrivateKeySigner(privateKeyBytes)
+if err != nil { return err }
 tx, err := r.BuildTransaction(ctx, *quote, signer.Address().Hex(), signer)
 if err != nil { return err }
 

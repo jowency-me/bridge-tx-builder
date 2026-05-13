@@ -10,6 +10,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/jowency-me/bridge-tx-builder/domain"
 )
@@ -37,7 +38,7 @@ func ptr(a common.Address) *common.Address { return &a }
 func (b *Builder) ChainID() domain.ChainID { return b.chainID }
 
 // Build constructs a sign-ready transaction from a quote.
-func (b *Builder) Build(_ context.Context, quote domain.Quote, from string, signer any) (*domain.Transaction, error) {
+func (b *Builder) Build(ctx context.Context, quote domain.Quote, from string, signer domain.Signer) (*domain.Transaction, error) {
 	if quote.TxData == nil && quote.TxValue.IsZero() {
 		return nil, errors.New("quote has no transaction data")
 	}
@@ -50,15 +51,27 @@ func (b *Builder) Build(_ context.Context, quote domain.Quote, from string, sign
 		return nil, errors.New("quote to address required")
 	}
 
-	s, ok := signer.(domain.EVMSigner)
-	if !ok {
-		return nil, fmt.Errorf("expected EVMSigner for chain %s, got %T", b.chainID, signer)
+	publicKeyBytes, err := signer.PublicKey(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get public key error: %w", err)
 	}
 
-	if common.HexToAddress(from).Hex() != s.Address().Hex() {
-		return nil, errors.New("signer address does not match from address")
+	publicKey, err := crypto.DecompressPubkey(publicKeyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("decompress public key: %w", err)
 	}
 
+	fromAddr := crypto.PubkeyToAddress(*publicKey)
+	if common.HexToAddress(from).Hex() != fromAddr.Hex() {
+		return nil, errors.New("private key does not match from address")
+	}
+
+	// Nonce handling follows the go-ethereum bind.TransactOpts pattern:
+	//   - if Quote.Nonce is set, use the caller-provided value (manual nonce management)
+	//   - if nil, fall back to 0; the caller is responsible for updating nonce
+	//     via eth_getTransactionCount / PendingNonceAt before broadcasting.
+	// This library is a pure transaction builder and does not hold an RPC client,
+	// so automatic nonce retrieval is intentionally left to the caller.
 	nonce := uint64(0)
 	if quote.Nonce != nil {
 		nonce = *quote.Nonce
@@ -73,6 +86,7 @@ func (b *Builder) Build(_ context.Context, quote domain.Quote, from string, sign
 
 	var rawTx *types.Transaction
 
+	// Use EIP-1559 for chains that support it.
 	if domain.SupportsEIP1559(b.chainID) {
 		if quote.GasTipCap.IsZero() || quote.GasFeeCap.IsZero() {
 			return nil, errors.New("EIP-1559 gas tip cap and fee cap must be provided")
@@ -103,7 +117,7 @@ func (b *Builder) Build(_ context.Context, quote domain.Quote, from string, sign
 		rawTx = types.NewTx(leg)
 	}
 
-	signedTx, err := s.SignTx(rawTx, b.numericChainID)
+	signedTx, err := b.sign(ctx, rawTx, signer)
 	if err != nil {
 		return nil, err
 	}
@@ -122,4 +136,15 @@ func (b *Builder) Build(_ context.Context, quote domain.Quote, from string, sign
 		Gas:     gasLimit,
 		Nonce:   nonce,
 	}, nil
+}
+
+func (b *Builder) sign(ctx context.Context, tx *types.Transaction, signer domain.Signer) (*types.Transaction, error) {
+	s := types.LatestSignerForChainID(b.numericChainID)
+	hashBytes := s.Hash(tx)
+	signature, err := signer.Sign(ctx, hashBytes.Bytes())
+	if err != nil {
+		return nil, err
+	}
+
+	return tx.WithSignature(s, signature)
 }

@@ -1,116 +1,121 @@
 package domain
 
 import (
+	"context"
 	"crypto/ecdsa"
+	"errors"
 	"fmt"
-	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	gotronSigner "github.com/fbsobreira/gotron-sdk/pkg/signer"
 	"github.com/fbsobreira/gotron-sdk/pkg/address"
-	"github.com/fbsobreira/gotron-sdk/pkg/proto/core"
 	"github.com/gagliardetto/solana-go"
 )
 
-// EVMSigner signs EVM transactions. The chainID is passed per-call so a single
-// signer instance can be reused across different EVM chains.
-type EVMSigner interface {
-	Address() common.Address
-	SignTx(tx *types.Transaction, chainID *big.Int) (*types.Transaction, error)
+// Signer is the interface for signing transactions.
+// Implement this interface to use custom key management solutions
+// (MPC wallets, TEE enclaves, HSMs, etc.).
+type Signer interface {
+	PublicKey(ctx context.Context) ([]byte, error)
+	Sign(ctx context.Context, payload []byte) ([]byte, error)
 }
 
-// EVMPrivateKeySigner implements EVMSigner using a raw secp256k1 private key.
+// EVMPrivateKeySigner implements Signer for EVM-compatible chains using secp256k1.
 type EVMPrivateKeySigner struct {
-	privateKey *ecdsa.PrivateKey
-	address    common.Address
+	key *ecdsa.PrivateKey
 }
 
-// NewEVMPrivateKeySigner creates a signer from raw private key bytes.
+// NewEVMPrivateKeySigner creates an EVM signer from a raw private key bytes.
 func NewEVMPrivateKeySigner(privateKey []byte) (*EVMPrivateKeySigner, error) {
+	if len(privateKey) != 32 {
+		return nil, errors.New("EVM private key must be 32 bytes")
+	}
 	key, err := crypto.ToECDSA(privateKey)
 	if err != nil {
 		return nil, fmt.Errorf("invalid EVM private key: %w", err)
 	}
-	pub, ok := key.Public().(*ecdsa.PublicKey)
-	if !ok {
-		return nil, fmt.Errorf("invalid EVM public key type")
-	}
-	addr := crypto.PubkeyToAddress(*pub)
-	return &EVMPrivateKeySigner{privateKey: key, address: addr}, nil
+	return &EVMPrivateKeySigner{key: key}, nil
 }
 
-func (s *EVMPrivateKeySigner) Address() common.Address { return s.address }
-
-func (s *EVMPrivateKeySigner) SignTx(tx *types.Transaction, chainID *big.Int) (*types.Transaction, error) {
-	signer := types.LatestSignerForChainID(chainID)
-	return types.SignTx(tx, signer, s.privateKey)
+// PublicKey returns the compressed public key bytes.
+func (s *EVMPrivateKeySigner) PublicKey(_ context.Context) ([]byte, error) {
+	return crypto.CompressPubkey(&s.key.PublicKey), nil
 }
 
-// SolanaSigner signs Solana transactions (Ed25519).
-type SolanaSigner interface {
-	PublicKey() solana.PublicKey
-	Sign(tx *solana.Transaction) error
+// Sign signs the payload using secp256k1.
+func (s *EVMPrivateKeySigner) Sign(_ context.Context, payload []byte) ([]byte, error) {
+	return crypto.Sign(payload, s.key)
 }
 
-// SolanaPrivateKeySigner implements SolanaSigner using a raw Ed25519 private key.
+// Address returns the Ethereum address derived from the public key.
+func (s *EVMPrivateKeySigner) Address() common.Address {
+	return crypto.PubkeyToAddress(s.key.PublicKey)
+}
+
+// SolanaPrivateKeySigner implements Signer for Solana using ed25519.
 type SolanaPrivateKeySigner struct {
-	privateKey solana.PrivateKey
-	publicKey  solana.PublicKey
+	key solana.PrivateKey
 }
 
-// NewSolanaPrivateKeySigner creates a signer from raw private key bytes (64 bytes: seed || pubkey).
+// NewSolanaPrivateKeySigner creates a Solana signer from raw private key bytes (64 bytes).
 func NewSolanaPrivateKeySigner(privateKey []byte) (*SolanaPrivateKeySigner, error) {
+	if len(privateKey) != 64 {
+		return nil, errors.New("Solana private key must be 64 bytes")
+	}
 	key := solana.PrivateKey(privateKey)
 	if !key.IsValid() {
-		return nil, fmt.Errorf("invalid Solana private key")
+		return nil, errors.New("invalid Solana private key")
 	}
-	return &SolanaPrivateKeySigner{privateKey: key, publicKey: key.PublicKey()}, nil
+	return &SolanaPrivateKeySigner{key: key}, nil
 }
 
-func (s *SolanaPrivateKeySigner) PublicKey() solana.PublicKey { return s.publicKey }
-
-func (s *SolanaPrivateKeySigner) Sign(tx *solana.Transaction) error {
-	_, err := tx.Sign(func(key solana.PublicKey) *solana.PrivateKey {
-		if key.Equals(s.publicKey) {
-			pk := s.privateKey
-			return &pk
-		}
-		return nil
-	})
-	return err
+// PublicKey returns the public key bytes.
+func (s *SolanaPrivateKeySigner) PublicKey(_ context.Context) ([]byte, error) {
+	return s.key.PublicKey().Bytes(), nil
 }
 
-// TronSigner signs Tron transactions (secp256k1, protobuf).
-type TronSigner interface {
-	Address() string
-	Sign(tx *core.Transaction) error
+// Sign signs the payload using ed25519.
+func (s *SolanaPrivateKeySigner) Sign(_ context.Context, payload []byte) ([]byte, error) {
+	sig, err := s.key.Sign(payload)
+	if err != nil {
+		return nil, err
+	}
+	return sig[:], nil
 }
 
-// TronPrivateKeySigner implements TronSigner using a raw secp256k1 private key.
+// Address returns the Solana public key as a string.
+func (s *SolanaPrivateKeySigner) Address() string {
+	return s.key.PublicKey().String()
+}
+
+// TronPrivateKeySigner implements Signer for Tron using secp256k1 (same curve as EVM).
 type TronPrivateKeySigner struct {
-	address string
-	signer  gotronSigner.Signer
+	key *ecdsa.PrivateKey
 }
 
-// NewTronPrivateKeySigner creates a signer from raw private key bytes.
+// NewTronPrivateKeySigner creates a Tron signer from raw private key bytes.
 func NewTronPrivateKeySigner(privateKey []byte) (*TronPrivateKeySigner, error) {
+	if len(privateKey) != 32 {
+		return nil, errors.New("Tron private key must be 32 bytes")
+	}
 	key, err := crypto.ToECDSA(privateKey)
 	if err != nil {
 		return nil, fmt.Errorf("invalid Tron private key: %w", err)
 	}
-	addr := address.PubkeyToAddress(key.PublicKey).String()
-	s, err := gotronSigner.NewPrivateKeySigner(key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Tron signer: %w", err)
-	}
-	return &TronPrivateKeySigner{address: addr, signer: s}, nil
+	return &TronPrivateKeySigner{key: key}, nil
 }
 
-func (s *TronPrivateKeySigner) Address() string { return s.address }
+// PublicKey returns the compressed public key bytes.
+func (s *TronPrivateKeySigner) PublicKey(_ context.Context) ([]byte, error) {
+	return crypto.CompressPubkey(&s.key.PublicKey), nil
+}
 
-func (s *TronPrivateKeySigner) Sign(tx *core.Transaction) error {
-	_, err := s.signer.Sign(tx)
-	return err
+// Sign signs the payload using secp256k1.
+func (s *TronPrivateKeySigner) Sign(_ context.Context, payload []byte) ([]byte, error) {
+	return crypto.Sign(payload, s.key)
+}
+
+// Address returns the Tron Base58 address derived from the public key.
+func (s *TronPrivateKeySigner) Address() string {
+	return address.PubkeyToAddress(s.key.PublicKey).String()
 }

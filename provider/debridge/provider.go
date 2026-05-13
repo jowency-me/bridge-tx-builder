@@ -1,0 +1,177 @@
+package debridge
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/jowency-me/bridge-tx-builder/domain"
+	hexutil "github.com/jowency-me/bridge-tx-builder/provider/internal/hex"
+	"github.com/shopspring/decimal"
+)
+
+type client interface {
+	Quote(ctx context.Context, params QuoteParams) (*QuoteResponse, error)
+	Status(ctx context.Context, txID string) (*StatusResponse, error)
+}
+
+// Provider adapts the debridge API to the domain provider interface.
+type Provider struct {
+	client client
+}
+
+// Option configures a Provider.
+type Option func(*Provider)
+
+// WithBaseURL configures the provider.
+func WithBaseURL(u string) Option {
+	return func(p *Provider) {
+		if c, ok := p.client.(*Client); ok {
+			c.baseURL = strings.TrimRight(u, "/")
+		}
+	}
+}
+
+// WithAPIKey configures the provider.
+func WithAPIKey(key string) Option {
+	return func(p *Provider) {
+		if c, ok := p.client.(*Client); ok {
+			c.apiKey = key
+		}
+	}
+}
+
+// WithHTTPClient configures the provider.
+func WithHTTPClient(hc *http.Client) Option {
+	return func(p *Provider) {
+		if c, ok := p.client.(*Client); ok {
+			c.client = hc
+		}
+	}
+}
+
+// NewProvider configures the provider.
+func NewProvider(opts ...Option) *Provider {
+	p := &Provider{client: NewClient()}
+	for _, opt := range opts {
+		opt(p)
+	}
+	return p
+}
+
+// Name is the provider identifier.
+const Name domain.ProviderName = "debridge"
+
+// Name returns the provider name.
+func (p *Provider) Name() string { return string(Name) }
+
+// Quote returns a cross-chain quote based on the request.
+func (p *Provider) Quote(ctx context.Context, req domain.QuoteRequest) (*domain.Quote, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+
+	if domain.NumericID(req.FromToken.ChainID) == 0 {
+		return nil, fmt.Errorf("%s: unsupported from chain %s", Name, req.FromToken.ChainID)
+	}
+	if domain.NumericID(req.ToToken.ChainID) == 0 {
+		return nil, fmt.Errorf("%s: unsupported to chain %s", Name, req.ToToken.ChainID)
+	}
+
+	params := QuoteParams{
+		SrcChainID:                    strconv.FormatInt(domain.NumericID(req.FromToken.ChainID), 10),
+		SrcChainTokenIn:               req.FromToken.Address,
+		SrcChainTokenInAmount:         req.Amount.String(),
+		DstChainID:                    strconv.FormatInt(domain.NumericID(req.ToToken.ChainID), 10),
+		DstChainTokenOut:              req.ToToken.Address,
+		SrcChainOrderAuthorityAddress: req.FromAddr,
+		DstChainOrderAuthorityAddress: req.ToAddr,
+		DstChainTokenOutRecipient:     req.ToAddr,
+		DstChainTokenOutAmount:        "auto",
+		Slippage:                      strconv.FormatFloat(req.Slippage*100, 'f', 2, 64),
+	}
+
+	qr, err := p.client.Quote(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+	return mapQuote(qr)
+}
+
+// Status returns the status of a transaction.
+func (p *Provider) Status(ctx context.Context, txID string) (*domain.Status, error) {
+	sr, err := p.client.Status(ctx, txID)
+	if err != nil {
+		return nil, err
+	}
+	return &domain.Status{
+		TxID:  sr.OrderID,
+		State: sr.Status,
+	}, nil
+}
+
+func mapQuote(qr *QuoteResponse) (*domain.Quote, error) {
+	if qr == nil {
+		return nil, fmt.Errorf("%s: empty quote response", Name)
+	}
+	fromAmt, err := decimal.NewFromString(qr.EstimateFromAmount)
+	if err != nil {
+		fromAmt = decimal.Zero
+	}
+	toAmt, err := decimal.NewFromString(qr.EstimateToAmount)
+	if err != nil {
+		toAmt = decimal.Zero
+	}
+	var gas uint64
+	if qr.Tx.GasLimit != "" {
+		g, err := strconv.ParseUint(qr.Tx.GasLimit, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("%s: parse gas limit: %w", Name, err)
+		}
+		gas = g
+	}
+
+	var txData []byte
+	if strings.HasPrefix(qr.Tx.Data, "0x") {
+		var err error
+		txData, err = hexutil.Decode(qr.Tx.Data[2:])
+		if err != nil {
+			return nil, fmt.Errorf("%s: invalid tx data: %w", Name, err)
+		}
+	}
+	var txValue decimal.Decimal
+	if qr.Tx.Value != "" && qr.Tx.Value != "0" {
+		v, err := decimal.NewFromString(qr.Tx.Value)
+		if err == nil {
+			txValue = v
+		}
+	}
+
+	return &domain.Quote{
+		ID:          qr.OrderID,
+		FromToken:   mapToken(qr.TokenIn),
+		ToToken:     mapToken(qr.TokenOut),
+		FromAmount:  fromAmt,
+		ToAmount:    toAmt,
+		MinAmount:   toAmt.Mul(decimal.NewFromInt(995)).Div(decimal.NewFromInt(1000)),
+		Slippage:    0.005,
+		Provider:    string(Name),
+		Deadline:    time.Now().Add(10 * time.Minute),
+		To:          qr.Tx.To,
+		TxData:      txData,
+		TxValue:     txValue,
+		EstimateGas: gas,
+	}, nil
+}
+
+func mapToken(t TokenInfo) domain.Token {
+	return domain.Token{
+		Symbol:   t.Symbol,
+		Address:  t.Address,
+		Decimals: t.Decimals,
+		ChainID:  domain.NumericToChainID(strconv.Itoa(t.ChainID)),
+	}
+}

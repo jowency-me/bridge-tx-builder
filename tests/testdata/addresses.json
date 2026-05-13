@@ -1,0 +1,43 @@
+{
+  "tokens": {
+    "ethereum": {
+      "USDC": {"address": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", "decimals": 6},
+      "USDT": {"address": "0xdAC17F958D2ee523a2206206994597C13D831ec7", "decimals": 6},
+      "WETH": {"address": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", "decimals": 18},
+      "DAI":  {"address": "0x6B175474E89094C44Da98b954EedeAC495271d0F", "decimals": 18},
+      "WBTC": {"address": "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599", "decimals": 8}
+    },
+    "base": {
+      "USDC": {"address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "decimals": 6},
+      "DAI":  {"address": "0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb", "decimals": 18},
+      "WETH": {"address": "0x4200000000000000000000000000000000000006", "decimals": 18}
+    },
+    "solana": {
+      "USDC": {"address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "decimals": 6},
+      "USDT": {"address": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB", "decimals": 6},
+      "BONK": {"address": "6dhTynDkYsVM7cbF7TKfC9DWB636TcEM935fq7JzL2ES", "decimals": 9}
+    },
+    "tron": {
+      "USDT": {"address": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t", "decimals": 6}
+    }
+  },
+  "active_wallets": {
+    "ethereum": [
+      "0x28C6c06298d514Db089934071355E5743bf21d60",
+      "0x47ac0Fb4F2D84898e4D9E7b4DaB3C24507a6D503"
+    ],
+    "base": [
+      "0x28C6c06298d514Db089934071355E5743bf21d60"
+    ],
+    "solana": [
+      "6cyreWJtMYptzFXQcnyP1p5G4C8FNW6ZBHuURztDnx32",
+      "8Kkzf2kqmz1PCWwZSDp9zxEYNGqRK9sr7Q85aXzQr37",
+      "7F8y61cwBWxgdVHZ17qx4KSfPsdhXLvgMQAfQY6xv9ty"
+    ],
+    "tron": [
+      "TNPdqto8HiuMzoG7Vv9wyyYhWzCojLeHAF",
+      "TCkU43W87Xfz7QoKHoENgYqXuDvkdTqSZP",
+      "TVQxYiyjPcDdz8ggiGasJZyxxqFDmH7fuc"
+    ]
+  }
+}

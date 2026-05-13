@@ -11,10 +11,8 @@ import (
 	"math/big"
 	"strings"
 
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/fbsobreira/gotron-sdk/pkg/address"
 	"github.com/fbsobreira/gotron-sdk/pkg/proto/core"
-	"github.com/fbsobreira/gotron-sdk/pkg/signer"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
@@ -33,7 +31,7 @@ func NewBuilder() *Builder {
 func (b *Builder) ChainID() domain.ChainID { return domain.ChainTron }
 
 // Build constructs a sign-ready transaction from a quote.
-func (b *Builder) Build(_ context.Context, quote domain.Quote, from string, privateKey []byte) (*domain.Transaction, error) {
+func (b *Builder) Build(_ context.Context, quote domain.Quote, from string, signer any) (*domain.Transaction, error) {
 	if quote.ID == "" {
 		return nil, errors.New("quote id required")
 	}
@@ -55,23 +53,15 @@ func (b *Builder) Build(_ context.Context, quote domain.Quote, from string, priv
 		return nil, errors.New("invalid from address")
 	}
 
-	key, err := crypto.ToECDSA(privateKey)
-	if err != nil {
-		return nil, errors.New("invalid private key")
+	s, ok := signer.(domain.TronSigner)
+	if !ok {
+		return nil, fmt.Errorf("expected TronSigner for chain %s, got %T", domain.ChainTron, signer)
 	}
 
-	addr := address.PubkeyToAddress(key.PublicKey)
-	if addr.String() != from {
-		return nil, errors.New("private key does not match from address")
+	if s.Address() != from {
+		return nil, errors.New("signer address does not match from address")
 	}
 
-	s, err := signer.NewPrivateKeySigner(key)
-	if err != nil {
-		return nil, err
-	}
-
-	// Build a TriggerSmartContract transaction for token swaps/bridges.
-	// For native TRX transfers, a TransferContract would be used instead.
 	contractAddr, err := address.Base58ToAddress(quote.To)
 	if err != nil {
 		return nil, errors.New("invalid to address")
@@ -92,8 +82,6 @@ func (b *Builder) Build(_ context.Context, quote domain.Quote, from string, priv
 		return nil, err
 	}
 
-	// Tron ref_block_bytes are the low 2 bytes of the block height, and
-	// ref_block_hash is bytes 8..16 of the block ID/hash.
 	blockHeightBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(blockHeightBytes, quote.BlockHeight)
 	refBlockBytes := blockHeightBytes[6:8]
@@ -123,7 +111,7 @@ func (b *Builder) Build(_ context.Context, quote domain.Quote, from string, priv
 	}
 
 	tx := &core.Transaction{RawData: rawData}
-	_, err = s.Sign(tx)
+	err = s.Sign(tx)
 	if err != nil {
 		return nil, err
 	}

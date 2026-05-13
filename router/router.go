@@ -126,7 +126,7 @@ func (r *Router) SelectBest(ctx context.Context, req domain.QuoteRequest, strate
 }
 
 // BuildTransaction routes the quote to the correct chain builder and returns a signed-ready transaction.
-func (r *Router) BuildTransaction(ctx context.Context, quote domain.Quote, from string, privateKey []byte) (*domain.Transaction, error) {
+func (r *Router) BuildTransaction(ctx context.Context, quote domain.Quote, from string, signer any) (*domain.Transaction, error) {
 	if err := quote.Validate(); err != nil {
 		return nil, err
 	}
@@ -137,7 +137,7 @@ func (r *Router) BuildTransaction(ctx context.Context, quote domain.Quote, from 
 	if !ok {
 		return nil, fmt.Errorf("no builder registered for chain %q", chainID)
 	}
-	return builder.Build(ctx, quote, from, privateKey)
+	return builder.Build(ctx, quote, from, signer)
 }
 
 // Simulate dry-runs a transaction without broadcasting.

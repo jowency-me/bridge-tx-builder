@@ -125,6 +125,12 @@ func mapQuote(qr *QuoteResponse) (*domain.Quote, error) {
 	if err != nil {
 		toAmt = decimal.Zero
 	}
+
+	var estFee decimal.Decimal
+	if !fromAmt.IsZero() && !toAmt.IsZero() && fromAmt.GreaterThan(toAmt) {
+		estFee = fromAmt.Sub(toAmt)
+	}
+
 	var gas uint64
 	if qr.Tx.GasLimit != "" {
 		g, err := strconv.ParseUint(qr.Tx.GasLimit, 10, 64)
@@ -164,6 +170,7 @@ func mapQuote(qr *QuoteResponse) (*domain.Quote, error) {
 		TxData:      txData,
 		TxValue:     txValue,
 		EstimateGas: gas,
+		EstimateFee: estFee,
 	}, nil
 }
 

@@ -44,12 +44,14 @@ func TestBuilder_Build_EIP1559(t *testing.T) {
 	// Generate a random key for signing
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
-	fromAddr := crypto.PubkeyToAddress(key.PublicKey).Hex()
+	evmSigner, err := domain.NewEVMPrivateKeySigner(crypto.FromECDSA(key))
+	require.NoError(t, err)
+	fromAddr := evmSigner.Address().Hex()
 
 	quote := domain.Quote{
 		ID:          "q1",
 		Provider:    "lifi",
-		To:          "0x1111111111111111111111111111111111111111",
+		To:          "0x1111111111111111111111111111111111111111111",
 		TxData:      common.Hex2Bytes("deadbeef"),
 		TxValue:     decimal.Zero,
 		EstimateGas: 200000,
@@ -57,7 +59,7 @@ func TestBuilder_Build_EIP1559(t *testing.T) {
 		GasFeeCap:   decimal.NewFromInt(20e9),
 	}
 
-	tx, err := b.Build(ctx, quote, fromAddr, crypto.FromECDSA(key))
+	tx, err := b.Build(ctx, quote, fromAddr, evmSigner)
 	require.NoError(t, err)
 	require.NotNil(t, tx)
 
@@ -75,19 +77,21 @@ func TestBuilder_Build_Legacy(t *testing.T) {
 
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
-	fromAddr := crypto.PubkeyToAddress(key.PublicKey).Hex()
+	evmSigner, err := domain.NewEVMPrivateKeySigner(crypto.FromECDSA(key))
+	require.NoError(t, err)
+	fromAddr := evmSigner.Address().Hex()
 
 	quote := domain.Quote{
 		ID:          "q1",
 		Provider:    "lifi",
-		To:          "0x2222222222222222222222222222222222222222",
+		To:          "0x2222222222222222222222222222222222222222222",
 		TxData:      common.Hex2Bytes("cafebabe"),
 		TxValue:     decimal.NewFromInt(1000),
 		EstimateGas: 100000,
 		GasPrice:    decimal.NewFromInt(5e9),
 	}
 
-	tx, err := b.Build(ctx, quote, fromAddr, crypto.FromECDSA(key))
+	tx, err := b.Build(ctx, quote, fromAddr, evmSigner)
 	require.NoError(t, err)
 	require.NotNil(t, tx)
 
@@ -110,13 +114,15 @@ func TestBuilder_Build_LowercaseFrom(t *testing.T) {
 
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
-	fromAddr := crypto.PubkeyToAddress(key.PublicKey).Hex()
+	evmSigner, err := domain.NewEVMPrivateKeySigner(crypto.FromECDSA(key))
+	require.NoError(t, err)
+	fromAddr := evmSigner.Address().Hex()
 	lowerFrom := strings.ToLower(fromAddr)
 
 	quote := domain.Quote{
 		ID:          "q1",
 		Provider:    "lifi",
-		To:          "0x1111111111111111111111111111111111111111",
+		To:          "0x1111111111111111111111111111111111111111111",
 		TxData:      common.Hex2Bytes("deadbeef"),
 		TxValue:     decimal.Zero,
 		EstimateGas: 200000,
@@ -124,7 +130,7 @@ func TestBuilder_Build_LowercaseFrom(t *testing.T) {
 		GasFeeCap:   decimal.NewFromInt(20e9),
 	}
 
-	tx, err := b.Build(ctx, quote, lowerFrom, crypto.FromECDSA(key))
+	tx, err := b.Build(ctx, quote, lowerFrom, evmSigner)
 	require.NoError(t, err)
 	require.NotNil(t, tx)
 	assert.Equal(t, lowerFrom, tx.From)
@@ -136,12 +142,14 @@ func TestBuilder_Build_GasLimitTooHigh(t *testing.T) {
 
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
-	fromAddr := crypto.PubkeyToAddress(key.PublicKey).Hex()
+	evmSigner, err := domain.NewEVMPrivateKeySigner(crypto.FromECDSA(key))
+	require.NoError(t, err)
+	fromAddr := evmSigner.Address().Hex()
 
 	quote := domain.Quote{
 		ID:          "q1",
 		Provider:    "lifi",
-		To:          "0x1111111111111111111111111111111111111111",
+		To:          "0x1111111111111111111111111111111111111111111",
 		TxData:      common.Hex2Bytes("deadbeef"),
 		TxValue:     decimal.Zero,
 		EstimateGas: maxGasLimit + 1,
@@ -149,23 +157,23 @@ func TestBuilder_Build_GasLimitTooHigh(t *testing.T) {
 		GasFeeCap:   decimal.NewFromInt(20e9),
 	}
 
-	_, err = b.Build(ctx, quote, fromAddr, crypto.FromECDSA(key))
+	_, err = b.Build(ctx, quote, fromAddr, evmSigner)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "gas limit")
 }
 
-func TestBuilder_Build_InvalidPrivateKey(t *testing.T) {
+func TestBuilder_Build_WrongSignerType(t *testing.T) {
 	b := NewBuilder(1)
 	quote := domain.Quote{
 		ID:        "q1",
 		Provider:  "lifi",
-		To:        "0x1111111111111111111111111111111111111111",
+		To:        "0x1111111111111111111111111111111111111111111",
 		TxData:    common.Hex2Bytes("deadbeef"),
 		GasTipCap: decimal.NewFromInt(1e9),
-		GasFeeCap: decimal.NewFromInt(20e9),
+		GasFeeCap:  decimal.NewFromInt(20e9),
 	}
 
-	_, err := b.Build(context.Background(), quote, "0xFrom", []byte("bad-key"))
+	_, err := b.Build(context.Background(), quote, "0xFrom", "not-a-signer")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid private key")
+	assert.Contains(t, err.Error(), "expected EVMSigner")
 }

@@ -127,7 +127,14 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error)
 	}
 	minAmt := toAmt.Mul(decimal.NewFromInt(995)).Div(decimal.NewFromInt(1000))
 
-	gas, _ := strconv.ParseUint(routeInfo.Gas, 10, 64)
+	var gas uint64
+	if routeInfo.Gas != "" {
+		g, err := strconv.ParseUint(routeInfo.Gas, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("%s: parse gas: %w", Name, err)
+		}
+		gas = g
+	}
 
 	route := make([]domain.RouteStep, 0, len(routeInfo.Route))
 	for _, s := range routeInfo.Route {

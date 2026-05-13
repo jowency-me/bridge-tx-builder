@@ -23,7 +23,7 @@ func NewBuilder() *Builder {
 func (b *Builder) ChainID() domain.ChainID { return domain.ChainSolana }
 
 // Build creates a signed Solana transaction from the given quote.
-func (b *Builder) Build(_ context.Context, quote domain.Quote, from string, privateKey []byte) (*domain.Transaction, error) {
+func (b *Builder) Build(_ context.Context, quote domain.Quote, from string, signer any) (*domain.Transaction, error) {
 	if quote.ID == "" {
 		return nil, errors.New("quote id required")
 	}
@@ -39,12 +39,13 @@ func (b *Builder) Build(_ context.Context, quote domain.Quote, from string, priv
 		return nil, fmt.Errorf("invalid target program address: %w", err)
 	}
 
-	key := solana.PrivateKey(privateKey)
-	if !key.IsValid() {
-		return nil, errors.New("invalid solana private key")
+	s, ok := signer.(domain.SolanaSigner)
+	if !ok {
+		return nil, fmt.Errorf("expected SolanaSigner for chain %s, got %T", domain.ChainSolana, signer)
 	}
-	if key.PublicKey().String() != from {
-		return nil, errors.New("private key does not match from address")
+
+	if s.PublicKey().String() != from {
+		return nil, errors.New("signer public key does not match from address")
 	}
 
 	recentBlockhash := solana.MustHashFromBase58(quote.BlockHash)
@@ -59,21 +60,19 @@ func (b *Builder) Build(_ context.Context, quote domain.Quote, from string, priv
 			solana.NewInstruction(
 				programID,
 				solana.AccountMetaSlice{
-					{PublicKey: key.PublicKey(), IsSigner: true, IsWritable: true},
+					{PublicKey: s.PublicKey(), IsSigner: true, IsWritable: true},
 				},
 				instructionData,
 			),
 		},
 		recentBlockhash,
-		solana.TransactionPayer(key.PublicKey()),
+		solana.TransactionPayer(s.PublicKey()),
 	)
 	if err != nil {
 		return nil, err
 	}
-	_, err = tx.Sign(func(key solana.PublicKey) *solana.PrivateKey {
-		pk := solana.PrivateKey(privateKey)
-		return &pk
-	})
+
+	err = s.Sign(tx)
 	if err != nil {
 		return nil, err
 	}

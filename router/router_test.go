@@ -27,6 +27,38 @@ func TestRouter_FindProviders(t *testing.T) {
 	assert.ElementsMatch(t, []string{"p1", "p3"}, list)
 }
 
+func TestRouter_FindProviders_NoProviders(t *testing.T) {
+	ctx := context.Background()
+	req := validReq()
+
+	r := New()
+	list, err := r.FindProviders(ctx, req)
+	require.NoError(t, err)
+	assert.Empty(t, list)
+}
+
+func TestRouter_FindProviders_AllFailed(t *testing.T) {
+	ctx := context.Background()
+	req := validReq()
+
+	r := New()
+	r.RegisterProvider(mock.NewErrorProvider("p1", errors.New("down")))
+	r.RegisterProvider(mock.NewErrorProvider("p2", errors.New("down")))
+
+	list, err := r.FindProviders(ctx, req)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "all 2 providers failed")
+	assert.Nil(t, list)
+}
+
+func TestRouter_FindProviders_InvalidRequest(t *testing.T) {
+	r := New()
+	r.RegisterProvider(mock.NewFixedProvider("p1", mock.StaticQuote("q1", "p1")))
+
+	_, err := r.FindProviders(context.Background(), domain.QuoteRequest{})
+	require.Error(t, err)
+}
+
 func TestRouter_SelectBest_BestAmount(t *testing.T) {
 	ctx := context.Background()
 	req := validReq()
@@ -99,6 +131,36 @@ func TestRouter_SelectBest_NoProviders(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestRouter_SelectBest_EmptyProviders(t *testing.T) {
+	ctx := context.Background()
+	req := validReq()
+
+	r := New()
+	_, err := r.SelectBest(ctx, req, StrategyBestAmount)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no provider returned a valid quote")
+}
+
+func TestRouter_SelectBest_UnknownStrategy(t *testing.T) {
+	ctx := context.Background()
+	req := validReq()
+
+	r := New()
+	r.RegisterProvider(mock.NewFixedProvider("p1", mock.StaticQuote("q1", "p1")))
+
+	_, err := r.SelectBest(ctx, req, SelectionStrategy("invalid_strategy"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown selection strategy")
+}
+
+func TestRouter_SelectBest_InvalidRequest(t *testing.T) {
+	r := New()
+	r.RegisterProvider(mock.NewFixedProvider("p1", mock.StaticQuote("q1", "p1")))
+
+	_, err := r.SelectBest(context.Background(), domain.QuoteRequest{}, StrategyBestAmount)
+	require.Error(t, err)
+}
+
 func TestRouter_BuildTransaction(t *testing.T) {
 	quote := domain.Quote{
 		ID:          "q1",
@@ -117,9 +179,17 @@ func TestRouter_BuildTransaction(t *testing.T) {
 	r := New()
 	r.RegisterBuilder(&mockBuilder{cid: domain.ChainEthereum})
 
-	tx, err := r.BuildTransaction(context.Background(), quote, "0xFrom", []byte("pk"))
+	tx, err := r.BuildTransaction(context.Background(), quote, "0xFrom", nil)
 	require.NoError(t, err)
 	assert.Equal(t, domain.ChainEthereum, tx.ChainID)
+}
+
+func TestRouter_BuildTransaction_InvalidQuote(t *testing.T) {
+	r := New()
+	r.RegisterBuilder(&mockBuilder{cid: domain.ChainEthereum})
+
+	_, err := r.BuildTransaction(context.Background(), domain.Quote{}, "0xFrom", nil)
+	require.Error(t, err)
 }
 
 func TestRouter_BuildTransaction_NoBuilder(t *testing.T) {
@@ -145,8 +215,20 @@ type mockBuilder struct {
 }
 
 func (m *mockBuilder) ChainID() domain.ChainID { return m.cid }
-func (m *mockBuilder) Build(_ context.Context, _ domain.Quote, from string, _ []byte) (*domain.Transaction, error) {
+func (m *mockBuilder) Build(_ context.Context, _ domain.Quote, from string, _ any) (*domain.Transaction, error) {
 	return &domain.Transaction{ChainID: m.cid, From: from, Value: decimal.Zero}, nil
+}
+
+func TestRouter_RegisterProvider_Nil(t *testing.T) {
+	r := New()
+	r.RegisterProvider(nil)
+	assert.Len(t, r.providers, 0)
+}
+
+func TestRouter_RegisterBuilder_Nil(t *testing.T) {
+	r := New()
+	r.RegisterBuilder(nil)
+	assert.Len(t, r.builders, 0)
 }
 
 func TestRouter_RegisterSimulator_Nil(t *testing.T) {
@@ -161,6 +243,20 @@ func TestRouter_Simulate_NilTx(t *testing.T) {
 	_, err := r.Simulate(context.Background(), nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "transaction required")
+}
+
+func TestRouter_Simulate_InvalidTx(t *testing.T) {
+	r := New()
+	r.RegisterSimulator(domain.ChainEthereum, &mockSimulator{})
+
+	// Missing To address
+	tx := &domain.Transaction{
+		ChainID: domain.ChainEthereum,
+		From:    "0x1234567890123456789012345678901234567890",
+		Value:   decimal.Zero,
+	}
+	_, err := r.Simulate(context.Background(), tx)
+	require.Error(t, err)
 }
 
 func TestRouter_Simulate_NoSimulator(t *testing.T) {

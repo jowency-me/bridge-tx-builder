@@ -53,9 +53,31 @@ Single-chain DEX adapters (`1inch`, `0x`, `OpenOcean`) reject cross-chain reques
 - **EVM mainnet IDs covered by tests:** Ethereum, Base, BNB Smart Chain, Polygon, Arbitrum One, Optimism, Avalanche C-Chain.
 - **Metadata-only constants:** Bitcoin and Cosmos currently exist as domain metadata for provider mappings; there is no transaction builder or simulator for them yet.
 
-## Key Handling
+## Signer Abstraction
 
-This library does not store or manage private keys. It only constructs transaction payloads. When a builder needs to produce a signed payload, the caller passes the private key bytes in directly; the library uses them only to sign in-memory and never persists, logs, or transmits them. Callers may also build unsigned payloads and sign externally.
+The library uses per-chain `Signer` interfaces instead of raw private keys, so it works with any key management solution — plaintext keys, MPC wallets, TEE enclaves, HSMs, etc.
+
+```go
+// Built-in: wraps a raw private key
+signer, _ := domain.NewEVMPrivateKeySigner(privateKeyBytes)
+
+// Custom: implement the interface for MPC/TEE wallets
+type MyMPCSigner struct { /* ... */ }
+func (s *MyMPCSigner) Address() common.Address                  { /* ... */ }
+func (s *MyMPCSigner) SignTx(tx *types.Transaction, chainID *big.Int) (*types.Transaction, error) {
+    // Call your MPC/TEE signing service
+}
+```
+
+Available interfaces and implementations:
+
+| Chain | Interface | PrivateKeySigner Constructor |
+| --- | --- | --- |
+| EVM | `domain.EVMSigner` | `domain.NewEVMPrivateKeySigner(privateKey []byte)` |
+| Solana | `domain.SolanaSigner` | `domain.NewSolanaPrivateKeySigner(privateKey []byte)` |
+| Tron | `domain.TronSigner` | `domain.NewTronPrivateKeySigner(privateKey []byte)` |
+
+The library never stores, logs, or transmits private keys. `PrivateKeySigner` signs entirely in-memory.
 
 ## Usage
 
@@ -70,7 +92,8 @@ r.RegisterSimulator(domain.ChainEthereum, evmSim)
 quote, err := r.SelectBest(ctx, req, router.StrategyBestAmount)
 if err != nil { return err }
 
-tx, err := r.BuildTransaction(ctx, *quote, fromAddr, privateKey)
+signer, _ := domain.NewEVMPrivateKeySigner(privateKeyBytes)
+tx, err := r.BuildTransaction(ctx, *quote, signer.Address().Hex(), signer)
 if err != nil { return err }
 
 res, err := r.Simulate(ctx, tx)

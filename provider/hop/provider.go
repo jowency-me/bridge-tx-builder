@@ -112,6 +112,14 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error)
 		toAmt = decimal.Zero
 	}
 
+	var estFee decimal.Decimal
+	if qr.Fee != "" {
+		f, err := decimal.NewFromString(qr.Fee)
+		if err == nil {
+			estFee = f
+		}
+	}
+
 	var slippage float64
 	if qr.Slippage != "" {
 		var err error
@@ -142,6 +150,7 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error)
 				Action:   "bridge",
 			},
 		},
-		Deadline: time.Now().Add(10 * time.Minute),
+		Deadline:    time.Now().Add(10 * time.Minute),
+		EstimateFee: estFee,
 	}, nil
 }

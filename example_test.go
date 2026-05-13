@@ -33,7 +33,6 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	tronAddress "github.com/fbsobreira/gotron-sdk/pkg/address"
 	"github.com/gagliardetto/solana-go"
@@ -77,9 +76,9 @@ func TestExample_EVMBuildAndSimulatePublicMainnet(t *testing.T) {
 	// Derive the sender address from the demo private key. In a real app the
 	// caller already has both pieces; the library never stores them.
 	privateKey := mustHex(t, evmPKHex)
-	key, err := crypto.ToECDSA(privateKey)
+	evmSigner, err := domain.NewEVMPrivateKeySigner(privateKey)
 	require.NoError(t, err)
-	from := crypto.PubkeyToAddress(key.PublicKey).Hex()
+	from := evmSigner.Address().Hex()
 
 	// Suggest current EIP-1559 fee caps from the live node. EVM builder
 	// requires GasTipCap + GasFeeCap for any EIP-1559-enabled chain.
@@ -112,7 +111,7 @@ func TestExample_EVMBuildAndSimulatePublicMainnet(t *testing.T) {
 	// Build the signed RLP payload. NewBuilder takes the numeric chain ID
 	// (Ethereum mainnet = 1). The returned Transaction.Data is the signed
 	// envelope ready for eth_sendRawTransaction.
-	tx, err := evm.NewBuilder(1).Build(ctx, quote, from, privateKey)
+	tx, err := evm.NewBuilder(1).Build(ctx, quote, from, evmSigner)
 	require.NoError(t, err)
 	require.NotEmpty(t, tx.Data)
 
@@ -137,7 +136,8 @@ func TestExample_SolanaBuildAndSimulatePublicMainnet(t *testing.T) {
 	// Solana ed25519 secret keys are 64 bytes (seed || pubkey). PrivateKey()
 	// performs no derivation; the bytes are used as-is for signing.
 	privateKey := mustHex(t, solanaPKHex)
-	solanaKey := solana.PrivateKey(privateKey)
+	solanaSigner, err := domain.NewSolanaPrivateKeySigner(privateKey)
+	require.NoError(t, err)
 
 	// Fetch a recent blockhash. Solana rejects transactions whose blockhash
 	// is older than ~150 slots (≈ 1 minute), so this must be fetched right
@@ -168,7 +168,7 @@ func TestExample_SolanaBuildAndSimulatePublicMainnet(t *testing.T) {
 	}
 
 	// Builder serializes the signed Solana transaction (wire format) into tx.Data.
-	tx, err := solanaBuilder.NewBuilder().Build(ctx, quote, solanaKey.PublicKey().String(), privateKey)
+	tx, err := solanaBuilder.NewBuilder().Build(ctx, quote, solanaSigner.PublicKey().String(), solanaSigner)
 	require.NoError(t, err)
 	require.NotEmpty(t, tx.Data)
 
@@ -189,9 +189,9 @@ func TestExample_TronBuildAndSimulatePublicMainnet(t *testing.T) {
 	// Tron uses the same secp256k1 keys as EVM; the address is derived
 	// differently (Base58 with checksum) but the private key bytes are identical.
 	privateKey := mustHex(t, evmPKHex)
-	key, err := crypto.ToECDSA(privateKey)
+	tronSigner, err := domain.NewTronPrivateKeySigner(privateKey)
 	require.NoError(t, err)
-	from := tronAddress.PubkeyToAddress(key.PublicKey).String()
+	from := tronSigner.Address()
 	usdtContract := "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"
 
 	// Tron requires the ref-block hash AND height; the builder uses these to
@@ -221,7 +221,7 @@ func TestExample_TronBuildAndSimulatePublicMainnet(t *testing.T) {
 	}
 
 	// Builder produces the signed core.Transaction protobuf bytes.
-	tx, err := tronBuilder.NewBuilder().Build(ctx, quote, from, privateKey)
+	tx, err := tronBuilder.NewBuilder().Build(ctx, quote, from, tronSigner)
 	require.NoError(t, err)
 	require.NotEmpty(t, tx.Data)
 
@@ -240,9 +240,9 @@ func TestExample_RouterFullFlowEVMMainnet(t *testing.T) {
 	defer cancel()
 
 	privateKey := mustHex(t, evmPKHex)
-	key, err := crypto.ToECDSA(privateKey)
+	evmSigner, err := domain.NewEVMPrivateKeySigner(privateKey)
 	require.NoError(t, err)
-	from := crypto.PubkeyToAddress(key.PublicKey).Hex()
+	from := evmSigner.Address().Hex()
 
 	gasTipCap, gasFeeCap := evmGasCaps(ctx, t)
 	usdc := domain.Token{Symbol: "USDC", Address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", Decimals: 6, ChainID: domain.ChainEthereum}
@@ -301,7 +301,7 @@ func TestExample_RouterFullFlowEVMMainnet(t *testing.T) {
 	// BuildTransaction dispatches by Quote.FromToken.ChainID to the matching
 	// registered ChainBuilder. The private key is passed in and used only
 	// for in-memory signing; it is not retained by the Router or builder.
-	tx, err := r.BuildTransaction(ctx, *selected, from, privateKey)
+	tx, err := r.BuildTransaction(ctx, *selected, from, evmSigner)
 	require.NoError(t, err)
 	require.NotEmpty(t, tx.Data)
 

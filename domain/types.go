@@ -188,7 +188,7 @@ type Provider interface {
 // ChainBuilder builds raw transactions for a specific chain.
 type ChainBuilder interface {
 	ChainID() ChainID
-	Build(ctx context.Context, quote Quote, from string, privateKey []byte) (*Transaction, error)
+	Build(ctx context.Context, quote Quote, from string, signer any) (*Transaction, error)
 }
 
 // Simulator dry-runs a transaction without broadcasting.

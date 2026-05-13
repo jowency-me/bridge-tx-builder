@@ -41,6 +41,13 @@ func NewSimulator(rpcURL string) (*Simulator, error) {
 	return &Simulator{client: client, url: rpcURL}, nil
 }
 
+// Close releases the RPC client connection.
+func (s *Simulator) Close() {
+	if s.client != nil {
+		s.client.Close()
+	}
+}
+
 // Simulate executes an eth_call for the given transaction.
 func (s *Simulator) Simulate(ctx context.Context, tx *domain.Transaction) (*domain.SimulationResult, error) {
 	if tx == nil {

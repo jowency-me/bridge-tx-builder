@@ -50,9 +50,11 @@ func TestClient_Status(t *testing.T) {
 func TestClient_Quote_RequestParams(t *testing.T) {
 	var recipient string
 	var dstAuthority string
+	var apiKey string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		recipient = r.URL.Query().Get("dstChainTokenOutRecipient")
 		dstAuthority = r.URL.Query().Get("dstChainOrderAuthorityAddress")
+		apiKey = r.Header.Get("X-DeBridge-API-Key")
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(QuoteResponse{OrderID: "order-1"})
 	}))
@@ -60,6 +62,7 @@ func TestClient_Quote_RequestParams(t *testing.T) {
 
 	c := NewClient()
 	c.baseURL = server.URL
+	c.apiKey = "debridge-key"
 	_, err := c.Quote(context.Background(), QuoteParams{
 		SrcChainID:                    "1",
 		SrcChainTokenIn:               "0xA",
@@ -75,4 +78,82 @@ func TestClient_Quote_RequestParams(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "0xTo", recipient)
 	require.Equal(t, "0xTo", dstAuthority)
+	require.Equal(t, "debridge-key", apiKey)
+}
+
+func TestClient_Quote_HTTPError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer server.Close()
+
+	c := NewClient()
+	c.baseURL = server.URL
+	_, err := c.Quote(context.Background(), QuoteParams{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "debridge quote failed: status 502")
+}
+
+func TestClient_Quote_DecodeError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("not json"))
+	}))
+	defer server.Close()
+
+	c := NewClient()
+	c.baseURL = server.URL
+	_, err := c.Quote(context.Background(), QuoteParams{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "debridge quote decode")
+}
+
+func TestClient_Status_HTTPError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	c := NewClient()
+	c.baseURL = server.URL
+	_, err := c.Status(context.Background(), "0xtx")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "debridge status failed: status 500")
+}
+
+func TestClient_Status_DecodeError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("bad json"))
+	}))
+	defer server.Close()
+
+	c := NewClient()
+	c.baseURL = server.URL
+	_, err := c.Status(context.Background(), "0xtx")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "debridge status decode")
+}
+
+func TestClient_Quote_TransportError(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	c := NewClient()
+	c.client = &http.Client{Timeout: 1 * time.Second}
+	c.baseURL = "http://127.0.0.1:1"
+
+	_, err := c.Quote(ctx, QuoteParams{})
+	require.Error(t, err)
+}
+
+func TestClient_Status_TransportError(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	c := NewClient()
+	c.client = &http.Client{Timeout: 1 * time.Second}
+	c.baseURL = "http://127.0.0.1:1"
+
+	_, err := c.Status(ctx, "0xtx")
+	require.Error(t, err)
 }

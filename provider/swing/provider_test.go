@@ -170,9 +170,15 @@ func TestMapStatus_EmptyState(t *testing.T) {
 func TestNewProvider_WithBaseURL(t *testing.T) {
 	p := NewProvider("key", WithBaseURL("https://custom.example.com"))
 	require.NotNil(t, p)
+	c, ok := p.client.(*Client)
+	require.True(t, ok)
+	assert.Equal(t, "https://custom.example.com", c.baseURL)
 }
 
 func TestNewProvider_WithHTTPClient(t *testing.T) {
 	p := NewProvider("key", WithHTTPClient(http.DefaultClient))
 	require.NotNil(t, p)
+	c, ok := p.client.(*Client)
+	require.True(t, ok)
+	assert.Equal(t, http.DefaultClient, c.client)
 }

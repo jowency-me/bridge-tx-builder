@@ -146,16 +146,25 @@ func TestProvider_Name(t *testing.T) {
 func TestNewProvider_WithBaseURL(t *testing.T) {
 	p := NewProvider(WithBaseURL("https://custom.example.com"))
 	require.NotNil(t, p)
+	c, ok := p.client.(*Client)
+	require.True(t, ok)
+	assert.Equal(t, "https://custom.example.com", c.baseURL)
 }
 
 func TestNewProvider_WithHTTPClient(t *testing.T) {
 	p := NewProvider(WithHTTPClient(http.DefaultClient))
 	require.NotNil(t, p)
+	c, ok := p.client.(*Client)
+	require.True(t, ok)
+	assert.Equal(t, http.DefaultClient, c.client)
 }
 
 func TestNewProvider_WithAPIKey(t *testing.T) {
 	p := NewProvider(WithAPIKey("test-key"))
 	require.NotNil(t, p)
+	c, ok := p.client.(*Client)
+	require.True(t, ok)
+	assert.Equal(t, "test-key", c.apiKey)
 }
 
 func TestProvider_Status_Success(t *testing.T) {

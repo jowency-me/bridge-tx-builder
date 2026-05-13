@@ -86,3 +86,101 @@ func TestClient_Quote_RequestParams(t *testing.T) {
 	require.Equal(t, "0xFrom", body["fromAddress"])
 	require.Equal(t, "0xTo", body["toAddress"])
 }
+
+func TestClient_Quote_HTTPError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	c := NewClient()
+	c.baseURL = server.URL
+	_, err := c.Quote(context.Background(), QuoteParams{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "squid quote failed: status 500")
+}
+
+func TestClient_Quote_DecodeError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("not valid json"))
+	}))
+	defer server.Close()
+
+	c := NewClient()
+	c.baseURL = server.URL
+	_, err := c.Quote(context.Background(), QuoteParams{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "squid quote decode")
+}
+
+func TestClient_Status_HTTPError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	c := NewClient()
+	c.baseURL = server.URL
+	_, err := c.Status(context.Background(), "0xtx")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "squid status failed: status 404")
+}
+
+func TestClient_Status_DecodeError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("bad json"))
+	}))
+	defer server.Close()
+
+	c := NewClient()
+	c.baseURL = server.URL
+	_, err := c.Status(context.Background(), "0xtx")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "squid status decode")
+}
+
+func TestClient_Status_RequestParams(t *testing.T) {
+	var txID string
+	var integrator string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		txID = r.URL.Query().Get("transactionId")
+		integrator = r.Header.Get("x-integrator-id")
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(StatusResponse{ID: "status-1", Status: "completed"})
+	}))
+	defer server.Close()
+
+	c := NewClient()
+	c.baseURL = server.URL
+	c.apiKey = "squid-key"
+	_, err := c.Status(context.Background(), "tx-123")
+	require.NoError(t, err)
+	require.Equal(t, "tx-123", txID)
+	require.Equal(t, "squid-key", integrator)
+}
+
+func TestClient_Quote_TransportError(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	c := NewClient()
+	c.client = &http.Client{Timeout: 1 * time.Second}
+	c.baseURL = "http://127.0.0.1:1"
+
+	_, err := c.Quote(ctx, QuoteParams{})
+	require.Error(t, err)
+}
+
+func TestClient_Status_TransportError(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	c := NewClient()
+	c.client = &http.Client{Timeout: 1 * time.Second}
+	c.baseURL = "http://127.0.0.1:1"
+
+	_, err := c.Status(ctx, "0xtx")
+	require.Error(t, err)
+}

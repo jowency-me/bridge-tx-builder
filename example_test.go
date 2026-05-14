@@ -75,8 +75,7 @@ func TestExample_EVMBuildAndSimulatePublicMainnet(t *testing.T) {
 
 	// Derive the sender address from the demo private key. In a real app the
 	// caller already has both pieces; the library never stores them.
-	privateKey := mustHex(t, evmPKHex)
-	evmSigner, err := domain.NewEVMPrivateKeySigner(privateKey)
+	evmSigner, err := domain.NewEVMPrivateKeySigner(mustHex(t, evmPKHex))
 	require.NoError(t, err)
 	from := evmSigner.Address().Hex()
 
@@ -133,10 +132,9 @@ func TestExample_SolanaBuildAndSimulatePublicMainnet(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 
-	// Solana ed25519 secret keys are 64 bytes (seed || pubkey). PrivateKey()
+	// Solana ed25519 secret keys are 64 bytes. PrivateKey()
 	// performs no derivation; the bytes are used as-is for signing.
-	privateKey := mustHex(t, solanaPKHex)
-	solanaSigner, err := domain.NewSolanaPrivateKeySigner(privateKey)
+	solanaSigner, err := domain.NewSolanaPrivateKeySigner(mustHex(t, solanaPKHex))
 	require.NoError(t, err)
 
 	// Fetch a recent blockhash. Solana rejects transactions whose blockhash
@@ -168,7 +166,7 @@ func TestExample_SolanaBuildAndSimulatePublicMainnet(t *testing.T) {
 	}
 
 	// Builder serializes the signed Solana transaction (wire format) into tx.Data.
-	tx, err := solanaBuilder.NewBuilder().Build(ctx, quote, solanaSigner.PublicKey().String(), solanaSigner)
+	tx, err := solanaBuilder.NewBuilder().Build(ctx, quote, solanaSigner.Address(), solanaSigner)
 	require.NoError(t, err)
 	require.NotEmpty(t, tx.Data)
 
@@ -188,8 +186,7 @@ func TestExample_TronBuildAndSimulatePublicMainnet(t *testing.T) {
 
 	// Tron uses the same secp256k1 keys as EVM; the address is derived
 	// differently (Base58 with checksum) but the private key bytes are identical.
-	privateKey := mustHex(t, evmPKHex)
-	tronSigner, err := domain.NewTronPrivateKeySigner(privateKey)
+	tronSigner, err := domain.NewTronPrivateKeySigner(mustHex(t, evmPKHex))
 	require.NoError(t, err)
 	from := tronSigner.Address()
 	usdtContract := "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"
@@ -239,8 +236,7 @@ func TestExample_RouterFullFlowEVMMainnet(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 
-	privateKey := mustHex(t, evmPKHex)
-	evmSigner, err := domain.NewEVMPrivateKeySigner(privateKey)
+	evmSigner, err := domain.NewEVMPrivateKeySigner(mustHex(t, evmPKHex))
 	require.NoError(t, err)
 	from := evmSigner.Address().Hex()
 

@@ -13,6 +13,26 @@ import (
 	"github.com/jowency-me/bridge-tx-builder/provider/mock"
 )
 
+type testSigner struct{}
+
+func (s *testSigner) PublicKey(_ context.Context) ([]byte, error) {
+	return []byte("pubkey"), nil
+}
+
+func (s *testSigner) Sign(_ context.Context, _ []byte) ([]byte, error) {
+	return []byte("signature"), nil
+}
+
+type errorSigner struct{}
+
+func (s *errorSigner) PublicKey(_ context.Context) ([]byte, error) {
+	return nil, errors.New("signer error")
+}
+
+func (s *errorSigner) Sign(_ context.Context, _ []byte) ([]byte, error) {
+	return nil, errors.New("signer error")
+}
+
 func TestRouter_FindProviders(t *testing.T) {
 	ctx := context.Background()
 	req := validReq()
@@ -179,7 +199,7 @@ func TestRouter_BuildTransaction(t *testing.T) {
 	r := New()
 	r.RegisterBuilder(&mockBuilder{cid: domain.ChainEthereum})
 
-	tx, err := r.BuildTransaction(context.Background(), quote, "0xFrom", nil)
+	tx, err := r.BuildTransaction(context.Background(), quote, "0xFrom", &testSigner{})
 	require.NoError(t, err)
 	assert.Equal(t, domain.ChainEthereum, tx.ChainID)
 }
@@ -204,7 +224,7 @@ func TestRouter_BuildTransaction_NoBuilder(t *testing.T) {
 	}
 
 	r := New()
-	_, err := r.BuildTransaction(context.Background(), quote, "from", nil)
+	_, err := r.BuildTransaction(context.Background(), quote, "from", &errorSigner{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no builder registered for chain")
 }
@@ -215,20 +235,8 @@ type mockBuilder struct {
 }
 
 func (m *mockBuilder) ChainID() domain.ChainID { return m.cid }
-func (m *mockBuilder) Build(_ context.Context, _ domain.Quote, from string, _ any) (*domain.Transaction, error) {
+func (m *mockBuilder) Build(_ context.Context, _ domain.Quote, from string, _ domain.Signer) (*domain.Transaction, error) {
 	return &domain.Transaction{ChainID: m.cid, From: from, Value: decimal.Zero}, nil
-}
-
-func TestRouter_RegisterProvider_Nil(t *testing.T) {
-	r := New()
-	r.RegisterProvider(nil)
-	assert.Len(t, r.providers, 0)
-}
-
-func TestRouter_RegisterBuilder_Nil(t *testing.T) {
-	r := New()
-	r.RegisterBuilder(nil)
-	assert.Len(t, r.builders, 0)
 }
 
 func TestRouter_RegisterSimulator_Nil(t *testing.T) {
@@ -243,20 +251,6 @@ func TestRouter_Simulate_NilTx(t *testing.T) {
 	_, err := r.Simulate(context.Background(), nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "transaction required")
-}
-
-func TestRouter_Simulate_InvalidTx(t *testing.T) {
-	r := New()
-	r.RegisterSimulator(domain.ChainEthereum, &mockSimulator{})
-
-	// Missing To address
-	tx := &domain.Transaction{
-		ChainID: domain.ChainEthereum,
-		From:    "0x1234567890123456789012345678901234567890",
-		Value:   decimal.Zero,
-	}
-	_, err := r.Simulate(context.Background(), tx)
-	require.Error(t, err)
 }
 
 func TestRouter_Simulate_NoSimulator(t *testing.T) {

@@ -2,6 +2,7 @@ package solana
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/gagliardetto/solana-go"
@@ -11,6 +12,16 @@ import (
 
 	"github.com/jowency-me/bridge-tx-builder/domain"
 )
+
+type invalidSigner struct{}
+
+func (s *invalidSigner) PublicKey(_ context.Context) ([]byte, error) {
+	return nil, errors.New("invalid private key")
+}
+
+func (s *invalidSigner) Sign(_ context.Context, _ []byte) ([]byte, error) {
+	return nil, errors.New("invalid private key")
+}
 
 func TestBuilder_ChainID(t *testing.T) {
 	b := NewBuilder()
@@ -23,9 +34,9 @@ func TestBuilder_Build(t *testing.T) {
 
 	key, err := solana.NewRandomPrivateKey()
 	require.NoError(t, err)
-	solanaSigner, err := domain.NewSolanaPrivateKeySigner([]byte(key))
+	signer, err := domain.NewSolanaPrivateKeySigner([]byte(key))
 	require.NoError(t, err)
-	from := solanaSigner.PublicKey().String()
+	from := signer.Address()
 
 	quote := domain.Quote{
 		ID:          "q1",
@@ -37,7 +48,7 @@ func TestBuilder_Build(t *testing.T) {
 		To:          solana.SystemProgramID.String(),
 	}
 
-	tx, err := b.Build(ctx, quote, from, solanaSigner)
+	tx, err := b.Build(ctx, quote, from, signer)
 	require.NoError(t, err)
 	require.NotNil(t, tx)
 
@@ -52,9 +63,9 @@ func TestBuilder_Build_WithTxData(t *testing.T) {
 
 	key, err := solana.NewRandomPrivateKey()
 	require.NoError(t, err)
-	solanaSigner, err := domain.NewSolanaPrivateKeySigner([]byte(key))
+	signer, err := domain.NewSolanaPrivateKeySigner([]byte(key))
 	require.NoError(t, err)
-	from := solanaSigner.PublicKey().String()
+	from := signer.Address()
 
 	quote := domain.Quote{
 		ID:          "q1",
@@ -67,7 +78,7 @@ func TestBuilder_Build_WithTxData(t *testing.T) {
 		To:          solana.SystemProgramID.String(),
 	}
 
-	tx, err := b.Build(ctx, quote, from, solanaSigner)
+	tx, err := b.Build(ctx, quote, from, signer)
 	require.NoError(t, err)
 	require.NotNil(t, tx)
 
@@ -80,15 +91,15 @@ func TestBuilder_Build_MissingTo(t *testing.T) {
 	b := NewBuilder()
 	key, err := solana.NewRandomPrivateKey()
 	require.NoError(t, err)
-	solanaSigner, err := domain.NewSolanaPrivateKeySigner([]byte(key))
+	signer, err := domain.NewSolanaPrivateKeySigner([]byte(key))
 	require.NoError(t, err)
-	from := solanaSigner.PublicKey().String()
+	from := signer.Address()
 
 	quote := domain.Quote{
 		ID:        "q1",
 		BlockHash: "11111111111111111111111111111111",
 	}
-	_, err = b.Build(context.Background(), quote, from, solanaSigner)
+	_, err = b.Build(context.Background(), quote, from, signer)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "target program address required")
 }
@@ -97,28 +108,22 @@ func TestBuilder_Build_InvalidTo(t *testing.T) {
 	b := NewBuilder()
 	key, err := solana.NewRandomPrivateKey()
 	require.NoError(t, err)
-	solanaSigner, err := domain.NewSolanaPrivateKeySigner([]byte(key))
+	signer, err := domain.NewSolanaPrivateKeySigner([]byte(key))
 	require.NoError(t, err)
-	from := solanaSigner.PublicKey().String()
+	from := signer.Address()
 
 	quote := domain.Quote{
 		ID:        "q1",
 		To:        "not-a-valid-base58",
 		BlockHash: "11111111111111111111111111111111",
 	}
-	_, err = b.Build(context.Background(), quote, from, solanaSigner)
+	_, err = b.Build(context.Background(), quote, from, signer)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid target program address")
 }
 
-func TestBuilder_Build_WrongSignerType(t *testing.T) {
+func TestBuilder_Build_InvalidKey(t *testing.T) {
 	b := NewBuilder()
-	quote := domain.Quote{
-		ID:        "q1",
-		To:        solana.SystemProgramID.String(),
-		BlockHash: "11111111111111111111111111111111",
-	}
-	_, err := b.Build(context.Background(), quote, "from", "not-a-signer")
+	_, err := b.Build(context.Background(), domain.Quote{ID: "q1"}, "from", &invalidSigner{})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "expected SolanaSigner")
 }

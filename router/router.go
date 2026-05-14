@@ -126,7 +126,7 @@ func (r *Router) SelectBest(ctx context.Context, req domain.QuoteRequest, strate
 }
 
 // BuildTransaction routes the quote to the correct chain builder and returns a signed-ready transaction.
-func (r *Router) BuildTransaction(ctx context.Context, quote domain.Quote, from string, signer any) (*domain.Transaction, error) {
+func (r *Router) BuildTransaction(ctx context.Context, quote domain.Quote, from string, signer domain.Signer) (*domain.Transaction, error) {
 	if err := quote.Validate(); err != nil {
 		return nil, err
 	}

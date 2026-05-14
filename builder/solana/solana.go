@@ -23,7 +23,7 @@ func NewBuilder() *Builder {
 func (b *Builder) ChainID() domain.ChainID { return domain.ChainSolana }
 
 // Build creates a signed Solana transaction from the given quote.
-func (b *Builder) Build(_ context.Context, quote domain.Quote, from string, signer any) (*domain.Transaction, error) {
+func (b *Builder) Build(ctx context.Context, quote domain.Quote, from string, signer domain.Signer) (*domain.Transaction, error) {
 	if quote.ID == "" {
 		return nil, errors.New("quote id required")
 	}
@@ -39,13 +39,13 @@ func (b *Builder) Build(_ context.Context, quote domain.Quote, from string, sign
 		return nil, fmt.Errorf("invalid target program address: %w", err)
 	}
 
-	s, ok := signer.(domain.SolanaSigner)
-	if !ok {
-		return nil, fmt.Errorf("expected SolanaSigner for chain %s, got %T", domain.ChainSolana, signer)
+	publicKeyBytes, err := signer.PublicKey(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get public key error: %w", err)
 	}
-
-	if s.PublicKey().String() != from {
-		return nil, errors.New("signer public key does not match from address")
+	publicKey := solana.PublicKeyFromBytes(publicKeyBytes)
+	if publicKey.String() != from {
+		return nil, errors.New("private key does not match from address")
 	}
 
 	recentBlockhash := solana.MustHashFromBase58(quote.BlockHash)
@@ -60,19 +60,19 @@ func (b *Builder) Build(_ context.Context, quote domain.Quote, from string, sign
 			solana.NewInstruction(
 				programID,
 				solana.AccountMetaSlice{
-					{PublicKey: s.PublicKey(), IsSigner: true, IsWritable: true},
+					{PublicKey: publicKey, IsSigner: true, IsWritable: true},
 				},
 				instructionData,
 			),
 		},
 		recentBlockhash,
-		solana.TransactionPayer(s.PublicKey()),
+		solana.TransactionPayer(publicKey),
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	err = s.Sign(tx)
+	_, err = b.sign(ctx, tx, signer)
 	if err != nil {
 		return nil, err
 	}
@@ -90,4 +90,20 @@ func (b *Builder) Build(_ context.Context, quote domain.Quote, from string, sign
 		Value:   quote.TxValue,
 		Gas:     quote.EstimateGas,
 	}, nil
+}
+
+func (b *Builder) sign(ctx context.Context, tx *solana.Transaction, signer domain.Signer) (*solana.Transaction, error) {
+	messageContent, err := tx.Message.MarshalBinary()
+	if err != nil {
+		return nil, fmt.Errorf("unable to encode message for signing: %w", err)
+	}
+
+	signature, err := signer.Sign(ctx, messageContent)
+	if err != nil {
+		return nil, fmt.Errorf("sign message error: %w", err)
+	}
+	tx.Signatures = append(tx.Signatures, solana.SignatureFromBytes(signature))
+
+	return tx, nil
+
 }

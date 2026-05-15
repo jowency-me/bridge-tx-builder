@@ -124,17 +124,9 @@ func (p *Provider) Quote(ctx context.Context, req domain.QuoteRequest) (*domain.
 	return mapQuote(qr, req)
 }
 
-// Status fetches transaction status from the provider API.
-func (p *Provider) Status(ctx context.Context, txID string) (*domain.Status, error) {
-	_, err := p.client.Status(ctx, txID)
-	if err != nil {
-		return nil, err
-	}
-	// OpenOcean has no transaction status API; return reachable as a best effort.
-	return &domain.Status{
-		State:      "completed",
-		SrcChainTx: txID,
-	}, nil
+// Status is not supported by OpenOcean API.
+func (p *Provider) Status(_ context.Context, _ string) (*domain.Status, error) {
+	return nil, fmt.Errorf("openocean: status tracking not supported by API")
 }
 
 func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error) {
@@ -149,7 +141,7 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error)
 	if err != nil {
 		toAmt = decimal.Zero
 	}
-	minAmt := toAmt.Mul(decimal.NewFromInt(995)).Div(decimal.NewFromInt(1000))
+	minAmt := toAmt.Mul(decimal.NewFromFloat(1 - req.Slippage))
 
 	var txData []byte
 	if strings.HasPrefix(qr.Data.Data, "0x") {
@@ -168,7 +160,7 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error)
 		}
 	}
 
-	return &domain.Quote{
+	quote := &domain.Quote{
 		ID:          fmt.Sprintf("oo-%s", qr.Data.OutAmount),
 		FromToken:   req.FromToken,
 		ToToken:     req.ToToken,
@@ -181,6 +173,16 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error)
 		To:          qr.Data.To,
 		TxData:      txData,
 		TxValue:     txValue,
-		EstimateGas: qr.Data.EstimatedGas,
-	}, nil
+		EstimateGas: qr.Data.EstimatedGasUint(),
+	}
+
+	if qr.Data.To != "" && req.FromToken.Address != "" &&
+		!strings.EqualFold(req.FromToken.Address, "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE") &&
+		!strings.EqualFold(req.FromToken.Address, "0x0000000000000000000000000000000000000000") {
+		quote.ApprovalAddress = qr.Data.To
+		allowance := req.Amount
+		quote.AllowanceNeeded = &allowance
+	}
+
+	return quote, nil
 }

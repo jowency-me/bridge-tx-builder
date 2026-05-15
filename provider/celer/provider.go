@@ -83,11 +83,12 @@ func (p *Provider) Quote(ctx context.Context, req domain.QuoteRequest) (*domain.
 	}
 
 	params := QuoteParams{
-		SrcChainID:  fromCode,
-		DstChainID:  toCode,
-		TokenSymbol: req.FromToken.Symbol,
-		Amt:         req.Amount.String(),
-		UsrAddr:     req.FromAddr,
+		SrcChainID:        fromCode,
+		DstChainID:        toCode,
+		TokenSymbol:       req.FromToken.Symbol,
+		Amt:               req.Amount.String(),
+		UsrAddr:           req.FromAddr,
+		SlippageTolerance: int(req.Slippage * 1e6),
 	}
 
 	qr, err := p.client.Quote(ctx, params)
@@ -106,7 +107,7 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error)
 	if qr == nil {
 		return nil, fmt.Errorf("%s: empty quote response", Name)
 	}
-	toAmt, err := decimal.NewFromString(qr.Value)
+	toAmt, err := decimal.NewFromString(qr.EqValueTokenAmt)
 	if err != nil {
 		toAmt = decimal.Zero
 	}
@@ -121,16 +122,16 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error)
 
 	var slippage float64
 	if qr.SlippageTolerance > 0 {
-		slippage = float64(qr.SlippageTolerance) / 10000.0
+		slippage = float64(qr.SlippageTolerance) / 1000000.0
 	}
 	if slippage == 0 {
 		slippage = req.Slippage
 	}
 
-	minAmt := toAmt.Mul(decimal.NewFromInt(995)).Div(decimal.NewFromInt(1000))
+	minAmt := toAmt.Mul(decimal.NewFromFloat(1 - slippage))
 
 	return &domain.Quote{
-		ID:         qr.Value + "-" + req.FromToken.Symbol,
+		ID:         qr.EqValueTokenAmt + "-" + req.FromToken.Symbol,
 		FromToken:  req.FromToken,
 		ToToken:    req.ToToken,
 		FromAmount: req.Amount,

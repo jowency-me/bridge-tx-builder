@@ -1,12 +1,18 @@
 // Package celer provides a quote adapter for the Celer cBridge cross-chain bridge.
+//
+// API Reference:
+//
+//	Quote: https://cbridge-docs.celer.network/developer/api-and-sdk/api-docs#estimategasfee
+//	API version: v2 (verified 2026-05-15)
 package celer
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strconv"
 	"time"
 )
 
@@ -36,20 +42,28 @@ func NewClientWithBaseURL(baseURL string) *Client {
 
 // QuoteParams contains raw celer quote request parameters.
 type QuoteParams struct {
-	SrcChainID  string
-	DstChainID  string
-	TokenSymbol string
-	Amt         string
-	UsrAddr     string
+	SrcChainID        string
+	DstChainID        string
+	TokenSymbol       string
+	Amt               string
+	UsrAddr           string
+	SlippageTolerance int
 }
 
 // QuoteResponse contains raw celer quote response data.
 type QuoteResponse struct {
-	Err               interface{} `json:"err"`
-	Value             string      `json:"value"`
-	PercFee           string      `json:"percFee"`
-	BaseFee           string      `json:"baseFee"`
-	SlippageTolerance int         `json:"slippageTolerance"`
+	Err                 interface{} `json:"err"`
+	EqValueTokenAmt     string      `json:"eq_value_token_amt"`
+	BridgeRate          float64     `json:"bridge_rate"`
+	PercFee             string      `json:"perc_fee"`
+	BaseFee             string      `json:"base_fee"`
+	SlippageTolerance   int         `json:"slippage_tolerance"`
+	MaxSlippage         int         `json:"max_slippage"`
+	EstimatedReceiveAmt string      `json:"estimated_receive_amt"`
+	DropGasAmt          string      `json:"drop_gas_amt"`
+	OpFeeRebate         float64     `json:"op_fee_rebate"`
+	OpFeeRebatePortion  float64     `json:"op_fee_rebate_portion"`
+	OpFeeRebateEndTime  string      `json:"op_fee_rebate_end_time"`
 }
 
 // StatusResponse contains raw celer status response data.
@@ -59,19 +73,22 @@ type StatusResponse struct {
 
 // Quote fetches a quote from the provider API.
 func (c *Client) Quote(ctx context.Context, params QuoteParams) (*QuoteResponse, error) {
-	body := map[string]interface{}{
-		"src_chain_id": params.SrcChainID,
-		"dst_chain_id": params.DstChainID,
-		"token_symbol": params.TokenSymbol,
-		"amt":          params.Amt,
-		"usr_addr":     params.UsrAddr,
-	}
-	bodyBytes, err := json.Marshal(body)
+	u, err := url.Parse(c.baseURL + "/estimateAmt")
 	if err != nil {
 		return nil, err
 	}
+	q := u.Query()
+	q.Set("src_chain_id", params.SrcChainID)
+	q.Set("dst_chain_id", params.DstChainID)
+	q.Set("token_symbol", params.TokenSymbol)
+	q.Set("amt", params.Amt)
+	q.Set("usr_addr", params.UsrAddr)
+	if params.SlippageTolerance > 0 {
+		q.Set("slippage_tolerance", strconv.Itoa(params.SlippageTolerance))
+	}
+	u.RawQuery = q.Encode()
 
-	hReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/estimateAmt", bytes.NewReader(bodyBytes))
+	hReq, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return nil, err
 	}

@@ -105,20 +105,10 @@ func (p *Provider) Quote(ctx context.Context, req domain.QuoteRequest) (*domain.
 }
 
 // Status returns the status of the transaction.
+// NOTE: 0x does not provide a transaction status API. This method returns an
+// error to indicate that status tracking is not supported.
 func (p *Provider) Status(ctx context.Context, txID string) (*domain.Status, error) {
-	sr, err := p.client.Status(ctx, txID)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", Name, err)
-	}
-	state := "unknown"
-	if sr != nil && sr.Status != "" {
-		state = sr.Status
-	}
-	return &domain.Status{
-		TxID:      txID,
-		State:     state,
-		UpdatedAt: time.Now(),
-	}, nil
+	return nil, fmt.Errorf("%s: status tracking not supported", Name)
 }
 
 func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error) {
@@ -135,32 +125,19 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error)
 	}
 
 	var minAmount decimal.Decimal
-	if qr.GuaranteedPrice != "" && qr.GuaranteedPrice != "0" {
-		guaranteedPrice, err := decimal.NewFromString(qr.GuaranteedPrice)
-		if err == nil && !guaranteedPrice.IsZero() {
-			minAmount = fromAmt.Mul(guaranteedPrice)
+	if qr.MinBuyAmount != "" {
+		minAmount, err = decimal.NewFromString(qr.MinBuyAmount)
+		if err != nil {
+			minAmount = toAmt.Mul(decimal.NewFromInt(995)).Div(decimal.NewFromInt(1000))
 		}
-	}
-	if minAmount.IsZero() {
+	} else {
 		minAmount = toAmt.Mul(decimal.NewFromInt(995)).Div(decimal.NewFromInt(1000))
 	}
 
-	txTo := qr.To
-	txDataHex := qr.Data
-	txValueRaw := qr.Value
-	txGasRaw := qr.Gas
-	if qr.Transaction.To != "" {
-		txTo = qr.Transaction.To
-	}
-	if qr.Transaction.Data != "" {
-		txDataHex = qr.Transaction.Data
-	}
-	if qr.Transaction.Value != "" {
-		txValueRaw = qr.Transaction.Value
-	}
-	if qr.Transaction.Gas != "" {
-		txGasRaw = qr.Transaction.Gas
-	}
+	txTo := qr.Transaction.To
+	txDataHex := qr.Transaction.Data
+	txValueRaw := qr.Transaction.Value
+	txGasRaw := qr.Transaction.Gas
 
 	var txData []byte
 	if strings.HasPrefix(txDataHex, "0x") {
@@ -189,19 +166,19 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error)
 	}
 
 	var estimateFee decimal.Decimal
-	if qr.Fee.FeeAmount != "" {
-		f, err := decimal.NewFromString(qr.Fee.FeeAmount)
+	if qr.Fees.ZeroExFee != nil && qr.Fees.ZeroExFee.Amount != "" {
+		f, err := decimal.NewFromString(qr.Fees.ZeroExFee.Amount)
 		if err == nil {
 			estimateFee = f
 		}
 	}
 
-	route := make([]domain.RouteStep, 0, len(qr.Sources))
-	for _, s := range qr.Sources {
-		if s.Proportion != "0" {
+	route := make([]domain.RouteStep, 0, len(qr.Route.Fills))
+	for _, fill := range qr.Route.Fills {
+		if fill.Proportion != "0" {
 			route = append(route, domain.RouteStep{
 				ChainID:  req.FromToken.ChainID,
-				Protocol: s.Name,
+				Protocol: fill.Source,
 				Action:   "swap",
 			})
 		}
@@ -216,7 +193,7 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error)
 		}
 	}
 
-	return &domain.Quote{
+	quote := &domain.Quote{
 		ID:          "0x-" + qr.BuyAmount + "-" + qr.SellAmount,
 		FromToken:   req.FromToken,
 		ToToken:     req.ToToken,
@@ -232,5 +209,15 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error)
 		TxValue:     txValue,
 		EstimateGas: gas,
 		EstimateFee: estimateFee,
-	}, nil
+	}
+
+	// 0x uses the /swap/allowance-holder/quote endpoint; Transaction.To is the
+	// allowance-holder contract that needs ERC-20 approval for non-native tokens.
+	if txTo != "" && req.FromToken.Address != "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE" {
+		quote.ApprovalAddress = txTo
+		allowance := fromAmt
+		quote.AllowanceNeeded = &allowance
+	}
+
+	return quote, nil
 }

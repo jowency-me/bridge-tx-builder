@@ -38,7 +38,6 @@ func TestProvider_Quote_Success(t *testing.T) {
 			Fees: FeesInfo{
 				Total:       "2092072",
 				Liquidity:   "2037232",
-				Outbound:    "54840",
 				SlippageBps: 9,
 			},
 		},
@@ -65,8 +64,45 @@ func TestProvider_Quote_Success(t *testing.T) {
 	assert.Equal(t, 2, len(quote.Route))
 	assert.Equal(t, "bc1qt9723ak9t7lu7a97lt9kelq4gnrlmyvk4yhzwr", quote.To)
 	assert.Equal(t, int64(2_092_072), quote.EstimateFee.IntPart())
+	// M-05: Memo should be encoded as TxData
+	assert.Equal(t, []byte("=:ETH.ETH:0x86d526d6624AbC0178cF7296cD538Ecc080A95F1:0/1/0"), quote.TxData)
 }
 
+func TestProvider_Quote_ERC20Approval(t *testing.T) {
+	// ERC-20 deposit: ApprovalAddress should be set to InboundAddress
+	// when fromToken is not native ETH or zero address.
+	// Verified against THORChain docs: vault requires token approval for ERC-20 deposits.
+	mock := &mockClient{
+		quoteResp: &QuoteResponse{
+			InboundAddress:    "0xVaultAddress",
+			ExpectedAmountOut: "500000000",
+			Memo:              "=:BTC.BTC:bc1qTo:0/1/0",
+			Expiry:            time.Now().Add(10 * time.Minute).Unix(),
+			SlippageBps:       50,
+			Fees: FeesInfo{
+				Total: "5000000",
+			},
+		},
+	}
+
+	p := &Provider{client: mock}
+	ctx := context.Background()
+
+	req := domain.QuoteRequest{
+		FromToken: domain.Token{Symbol: "USDC", Address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", Decimals: 6, ChainID: domain.ChainEthereum},
+		ToToken:   domain.Token{Symbol: "BTC", Address: "0x0000000000000000000000000000000000000000", Decimals: 8, ChainID: "bitcoin"},
+		Amount:    decimal.NewFromInt(1_000_000),
+		Slippage:  0.005,
+		FromAddr:  "0xFrom",
+		ToAddr:    "bc1qTo",
+	}
+
+	quote, err := p.Quote(ctx, req)
+	require.NoError(t, err)
+	assert.Equal(t, "0xVaultAddress", quote.ApprovalAddress)
+	require.NotNil(t, quote.AllowanceNeeded)
+	assert.Equal(t, int64(1_000_000), quote.AllowanceNeeded.IntPart())
+}
 func TestProvider_Quote_HTTPError(t *testing.T) {
 	mock := &mockClient{quoteErr: assert.AnError}
 	p := &Provider{client: mock}
@@ -87,17 +123,16 @@ func TestProvider_Quote_HTTPError(t *testing.T) {
 func TestProvider_Status_Success(t *testing.T) {
 	mock := &mockClient{
 		statusResp: &StatusResponse{
-			Tx: TxDetail{
-				ID:     "0xTxID",
-				Chain:  "ETH",
-				Status: "done",
+			Tx: StatusTxDetail{
+				ID:    "0xTxID",
+				Chain: "ETH",
 			},
-			Stages: TxStages{
-				InboundObserved:            TxStage{Completed: true},
-				InboundConfirmationCounted: TxStage{Completed: true},
-				InboundFinalised:           TxStage{Completed: true},
-				SwapStatus:                 TxStage{Completed: true},
-				OutboundSigned:             TxStage{Completed: true},
+			Stages: StatusStages{
+				InboundObserved:            InboundObservedStage{Completed: true},
+				InboundConfirmationCounted: ConfirmCountedStage{Completed: true},
+				InboundFinalised:           StageCompleted{Completed: true},
+				SwapStatus:                 SwapStatusStage{Pending: false},
+				SwapFinalised:              StageCompleted{Completed: true},
 			},
 		},
 	}
@@ -107,7 +142,7 @@ func TestProvider_Status_Success(t *testing.T) {
 	status, err := p.Status(ctx, "tx-123")
 	require.NoError(t, err)
 	assert.Equal(t, "tx-123", status.TxID)
-	assert.Equal(t, "done", status.State)
+	assert.Equal(t, "completed", status.State)
 	assert.Equal(t, "0xTxID", status.SrcChainTx)
 }
 
@@ -215,30 +250,31 @@ func TestMapStatus_NilResponse(t *testing.T) {
 }
 
 func TestMapStatus_NoTxStatus_UsesStages(t *testing.T) {
-	// When Tx.Status is empty, check stages
 	sr := &StatusResponse{
-		Tx: TxDetail{
-			ID:     "0xSrc",
-			Chain:  "ETH",
-			Status: "", // empty status
+		Tx: StatusTxDetail{
+			ID:    "0xSrc",
+			Chain: "ETH",
 		},
-		Stages: TxStages{
-			SwapStatus: TxStage{Completed: true},
+		Stages: StatusStages{
+			InboundFinalised: StageCompleted{Completed: true},
+			SwapStatus:       SwapStatusStage{Pending: false},
+			SwapFinalised:    StageCompleted{Completed: true},
 		},
 	}
 	status := mapStatus(sr, "tx-123")
 	assert.Equal(t, "completed", status.State)
 }
 
-func TestMapStatus_NoTxStatus_OutboundSigned(t *testing.T) {
+func TestMapStatus_CompletedStages(t *testing.T) {
 	sr := &StatusResponse{
-		Tx: TxDetail{
-			ID:     "0xSrc",
-			Chain:  "ETH",
-			Status: "",
+		Tx: StatusTxDetail{
+			ID:    "0xSrc",
+			Chain: "ETH",
 		},
-		Stages: TxStages{
-			OutboundSigned: TxStage{Completed: true},
+		Stages: StatusStages{
+			InboundFinalised: StageCompleted{Completed: true},
+			SwapFinalised:    StageCompleted{Completed: true},
+			SwapStatus:       SwapStatusStage{Pending: false},
 		},
 	}
 	status := mapStatus(sr, "tx-456")
@@ -247,12 +283,11 @@ func TestMapStatus_NoTxStatus_OutboundSigned(t *testing.T) {
 
 func TestMapStatus_PendingState(t *testing.T) {
 	sr := &StatusResponse{
-		Tx: TxDetail{
-			ID:     "0xSrc",
-			Chain:  "ETH",
-			Status: "pending",
+		Tx: StatusTxDetail{
+			ID:    "0xSrc",
+			Chain: "ETH",
 		},
-		Stages: TxStages{},
+		Stages: StatusStages{},
 	}
 	status := mapStatus(sr, "tx-789")
 	assert.Equal(t, "pending", status.State)
@@ -479,6 +514,53 @@ func TestConvertTo1e8_Decimals19_Clamped(t *testing.T) {
 	// 19 decimals > 18, clamped to 18
 	res := convertTo1e8(decimal.NewFromInt(1_000_000_000_000_000_000), 19)
 	assert.NotEmpty(t, res)
+}
+
+func TestMapQuote_MemoEncodedAsTxData(t *testing.T) {
+	// M-05: Memo should be encoded as TxData for EVM deposits
+	qr := &QuoteResponse{
+		InboundAddress:    "0xInboundVault",
+		ExpectedAmountOut: "500000000",
+		Memo:              "=:ETH.ETH:0x86d526d6624AbC0178cF7296cD538Ecc080A95F1:0/1/0",
+		Expiry:            time.Now().Add(10 * time.Minute).Unix(),
+		SlippageBps:       50,
+		Fees: FeesInfo{
+			Total: "5000000",
+		},
+	}
+	req := domain.QuoteRequest{
+		FromToken: domain.Token{Symbol: "ETH", Address: "0x0000000000000000000000000000000000000000", Decimals: 18, ChainID: domain.ChainEthereum},
+		ToToken:   domain.Token{Symbol: "BTC", Address: "0x0000000000000000000000000000000000000000", Decimals: 8, ChainID: "bitcoin"},
+		Amount:    decimal.NewFromInt(1_000_000_000_000_000_000),
+		Slippage:  0.01,
+	}
+	quote, err := mapQuote(qr, req, "ETH", "BTC")
+	require.NoError(t, err)
+	assert.Equal(t, []byte("=:ETH.ETH:0x86d526d6624AbC0178cF7296cD538Ecc080A95F1:0/1/0"), quote.TxData)
+	assert.Equal(t, "0xInboundVault", quote.To)
+}
+
+func TestMapQuote_EmptyMemoNoTxData(t *testing.T) {
+	// When memo is empty, TxData should be nil
+	qr := &QuoteResponse{
+		InboundAddress:    "bc1qt9723",
+		ExpectedAmountOut: "1000000",
+		Memo:              "",
+		Expiry:            time.Now().Add(10 * time.Minute).Unix(),
+		SlippageBps:       50,
+		Fees: FeesInfo{
+			Total: "1000",
+		},
+	}
+	req := domain.QuoteRequest{
+		FromToken: domain.Token{Symbol: "BTC", Address: "0x0000", Decimals: 8, ChainID: "bitcoin"},
+		ToToken:   domain.Token{Symbol: "ETH", Address: "0x0000", Decimals: 18, ChainID: domain.ChainEthereum},
+		Amount:    decimal.NewFromInt(100_000_000),
+		Slippage:  0.005,
+	}
+	quote, err := mapQuote(qr, req, "BTC", "ETH")
+	require.NoError(t, err)
+	assert.Nil(t, quote.TxData)
 }
 
 func TestProvider_Quote_WithValidMock(t *testing.T) {

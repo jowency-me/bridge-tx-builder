@@ -34,7 +34,8 @@ func TestProvider_Quote_Success(t *testing.T) {
 			FromAmount: "1000000",
 			ToAmount:   "999000",
 			Estimate: Estimate{
-				ToAmountMin: "995000",
+				ToAmountMin:     "995000",
+				ApprovalAddress: "0xRouter",
 				GasCosts: []GasCost{
 					{Estimate: "50000"},
 				},
@@ -79,6 +80,13 @@ func TestProvider_Quote_Success(t *testing.T) {
 	assert.Equal(t, "lifi", quote.Provider)
 	assert.Equal(t, 2, len(quote.Route))
 	assert.Equal(t, uint64(50_000), quote.EstimateGas)
+
+	// Verify approval fields: when Estimate.ApprovalAddress is set,
+	// AllowanceNeeded should be set to fromAmount.
+	// Real LI.FI API returns approvalAddress for ERC-20 tokens (verified 2026-05-15).
+	assert.Equal(t, "0xRouter", quote.ApprovalAddress)
+	require.NotNil(t, quote.AllowanceNeeded)
+	assert.Equal(t, int64(1_000_000), quote.AllowanceNeeded.IntPart())
 }
 
 func TestProvider_Quote_HTTPError(t *testing.T) {
@@ -164,7 +172,13 @@ func TestNewProvider_WithHTTPClient(t *testing.T) {
 func TestProvider_Status_Success(t *testing.T) {
 	mock := &mockClient{
 		statusResp: &StatusResponse{
-			Status: "DONE",
+			Status:           "DONE",
+			Substatus:        "COMPLETED",
+			SubstatusMessage: "Transaction completed",
+			BridgeExplorer:   "https://explorer.li.fi/tx/0xabc123",
+			TxHistoryURL:     "https://li.fi/history/0xabc123",
+			TokenAmountIn:    "1000000",
+			TokenAmountOut:   "995000",
 			Sending: TxInfo{
 				TxHash:  "0xabc123",
 				ChainID: 1,
@@ -180,7 +194,7 @@ func TestProvider_Status_Success(t *testing.T) {
 
 	status, err := p.Status(ctx, "0xtxhash")
 	require.NoError(t, err)
-	require.Equal(t, "DONE", status.State)
+	require.Equal(t, "completed", status.State)
 	require.Equal(t, "0xabc123", status.SrcChainTx)
 	require.Equal(t, "0xdef456", status.DstChainTx)
 }
@@ -285,6 +299,34 @@ func TestMapQuote_NilGasCostsFallsBackToGasLimit(t *testing.T) {
 	require.Equal(t, uint64(300000), quote.EstimateGas)
 }
 
+func TestMapQuote_NilGasCostsFallsBackToHexGasLimit(t *testing.T) {
+	qr := &QuoteResponse{
+		ID:         "liq-123",
+		FromAmount: "1000000",
+		ToAmount:   "999000",
+		Estimate: Estimate{
+			ToAmountMin: "995000",
+			GasCosts:    nil,
+		},
+		Action: Action{
+			FromToken:   TokenInfo{Symbol: "USDC", Address: "0xA", Decimals: 6},
+			ToToken:     TokenInfo{Symbol: "USDT", Address: "0xB", Decimals: 6},
+			FromChainID: 1,
+			ToChainID:   8453,
+		},
+		IncludedSteps: []Step{},
+		TransactionRequest: TxRequest{
+			To:       "0xRouter",
+			Data:     "0x",
+			Value:    "0x0",
+			GasLimit: "0x447b4",
+		},
+	}
+	quote, err := mapQuote(qr)
+	require.NoError(t, err)
+	require.Equal(t, uint64(0x447b4), quote.EstimateGas)
+}
+
 func TestMapQuote_NonZeroTxValue(t *testing.T) {
 	qr := &QuoteResponse{
 		ID:         "liq-123",
@@ -311,6 +353,36 @@ func TestMapQuote_NonZeroTxValue(t *testing.T) {
 	quote, err := mapQuote(qr)
 	require.NoError(t, err)
 	require.True(t, quote.TxValue.GreaterThan(decimal.Zero))
+}
+
+func TestMapQuote_HexTxValue(t *testing.T) {
+	qr := &QuoteResponse{
+		ID:         "liq-123",
+		FromAmount: "1000000",
+		ToAmount:   "999000",
+		Estimate: Estimate{
+			ToAmountMin: "995000",
+			GasCosts:    []GasCost{},
+		},
+		Action: Action{
+			FromToken:   TokenInfo{Symbol: "ETH", Address: "0xA", Decimals: 18},
+			ToToken:     TokenInfo{Symbol: "WETH", Address: "0xB", Decimals: 18},
+			FromChainID: 1,
+			ToChainID:   1,
+		},
+		IncludedSteps: []Step{},
+		TransactionRequest: TxRequest{
+			To:       "0xRouter",
+			Data:     "0x",
+			Value:    "0x14d1120d7b160000",
+			GasLimit: "200000",
+		},
+	}
+	quote, err := mapQuote(qr)
+	require.NoError(t, err)
+	require.True(t, quote.TxValue.GreaterThan(decimal.Zero))
+	// 0x14d1120d7b160000 = 1500000000000000000 (1.5 ETH in wei)
+	require.Equal(t, "1500000000000000000", quote.TxValue.String())
 }
 
 func TestMapQuote_ZeroTxValue(t *testing.T) {

@@ -27,7 +27,7 @@ func TestClient_Quote(t *testing.T) {
 		t.Skipf("real API unavailable: %v", err)
 	}
 	require.NotNil(t, resp)
-	if resp.AmountOut == "" {
+	if resp.EstimatedReceived == "" {
 		t.Skip("real API returned empty quote")
 	}
 }
@@ -66,11 +66,13 @@ func TestClient_QuoteRequestParams(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = fmt.Fprint(w, `{
-			"amountOut": "995000",
+			"estimatedRecieved": "995000",
 			"bridge": "hop",
 			"estimatedRecipientTime": 120,
-			"fee": "0.005",
-			"slippage": "0.5"
+				"deadline": 1779434253,
+				"destinationDeadline": 1779434253,
+			"bonderFee": "0.005",
+			"slippage": 0.5
 		}`)
 	}))
 	defer server.Close()
@@ -82,6 +84,7 @@ func TestClient_QuoteRequestParams(t *testing.T) {
 		ToChain:   "base",
 		Token:     "0xA0b86a33E6441e0A421e56E4773C3C1C3E1f3e3C",
 		Amount:    "1000000",
+		Slippage:  0.005, // 0.5% => sent as percentage float "0.5"
 	}
 	resp, err := c.Quote(context.Background(), params)
 	require.NoError(t, err)
@@ -90,6 +93,8 @@ func TestClient_QuoteRequestParams(t *testing.T) {
 	require.Contains(t, receivedURL, "toChain=base")
 	require.Contains(t, receivedURL, "token=0xA0b86a33E6441e0A421e56E4773C3C1C3E1f3e3C")
 	require.Contains(t, receivedURL, "amount=1000000")
+	// Hop API expects slippage as percentage float (e.g. "0.5" for 0.5%)
+	require.Contains(t, receivedURL, "slippage=0.5")
 }
 
 func TestClient_QuoteResponseParsing(t *testing.T) {
@@ -97,11 +102,13 @@ func TestClient_QuoteResponseParsing(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = fmt.Fprint(w, `{
-			"amountOut": "995000",
+			"estimatedRecieved": "995000",
 			"bridge": "hop",
 			"estimatedRecipientTime": 120,
-			"fee": "0.005",
-			"slippage": "0.5"
+				"deadline": 1779434253,
+				"destinationDeadline": 1779434253,
+			"bonderFee": "0.005",
+			"slippage": 0.5
 		}`)
 	}))
 	defer server.Close()
@@ -110,11 +117,48 @@ func TestClient_QuoteResponseParsing(t *testing.T) {
 	c.baseURL = server.URL
 	resp, err := c.Quote(context.Background(), QuoteParams{})
 	require.NoError(t, err)
-	require.Equal(t, "995000", resp.AmountOut)
+	require.Equal(t, "995000", resp.EstimatedReceived)
 	require.Equal(t, "hop", resp.Bridge)
-	require.Equal(t, 120, resp.EstimatedRecipientTime)
-	require.Equal(t, "0.005", resp.Fee)
-	require.Equal(t, "0.5", resp.Slippage)
+	require.Equal(t, int64(1779434253), resp.Deadline)
+	require.Equal(t, "0.005", resp.BonderFee)
+	require.Equal(t, 0.5, resp.Slippage)
+}
+
+func TestClient_Quote_JSONDeserialization(t *testing.T) {
+	// Test that the QuoteResponse struct correctly deserializes real Hop API JSON.
+	// Real response from https://api.hop.exchange/v1/quote
+	raw := `{
+    "amountIn": "1000000",
+    "slippage": 0.5,
+    "amountOutMin": "985050",
+    "destinationAmountOutMin": null,
+    "bonderFee": "10000",
+    "estimatedRecieved": "990000",
+    "deadline": 1779438015,
+    "destinationDeadline": null
+}`
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(raw))
+	}))
+	defer server.Close()
+
+	c := NewClient()
+	c.baseURL = server.URL
+	resp, err := c.Quote(context.Background(), QuoteParams{})
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+
+	require.Equal(t, "1000000", resp.AmountIn)
+	require.Equal(t, 0.5, resp.Slippage)
+	require.Equal(t, "985050", resp.AmountOutMin)
+	require.Equal(t, "", resp.DestinationAmountOutMin) // null -> zero value
+	require.Equal(t, "10000", resp.BonderFee)
+	require.Equal(t, "990000", resp.EstimatedReceived)
+	require.Equal(t, int64(1779438015), resp.Deadline)
+	require.Equal(t, int64(0), resp.DestinationDeadline) // null -> zero value
 }
 
 func TestClient_Status(t *testing.T) {

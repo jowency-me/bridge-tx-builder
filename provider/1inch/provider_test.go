@@ -31,9 +31,8 @@ func TestProvider_Quote_Success(t *testing.T) {
 	mock := &mockClient{
 		quoteResp: &QuoteResponse{
 			DstAmount: "999000",
-			SrcAmount: "1000000",
-			FromToken: TokenInfo{Symbol: "USDC", Address: "0xA", Decimals: 6},
-			ToToken:   TokenInfo{Symbol: "USDT", Address: "0xB", Decimals: 6},
+			SrcToken:  TokenInfo{Symbol: "USDC", Address: "0xA", Decimals: 6},
+			DstToken:  TokenInfo{Symbol: "USDT", Address: "0xB", Decimals: 6},
 			Tx: TxData{
 				To:    "0xRouter",
 				Data:  "0xdeadbeef",
@@ -67,6 +66,24 @@ func TestProvider_Quote_Success(t *testing.T) {
 	assert.Equal(t, uint64(150_000), quote.EstimateGas)
 	assert.Equal(t, "0xRouter", quote.To)
 	assert.Equal(t, []byte{0xde, 0xad, 0xbe, 0xef}, quote.TxData)
+	// Verify token mapping from API response
+	assert.Equal(t, "USDC", quote.FromToken.Symbol)
+	assert.Equal(t, "0xA", quote.FromToken.Address)
+	assert.Equal(t, 6, quote.FromToken.Decimals)
+	assert.Equal(t, domain.ChainEthereum, quote.FromToken.ChainID)
+	assert.Equal(t, "USDT", quote.ToToken.Symbol)
+	assert.Equal(t, "0xB", quote.ToToken.Address)
+	assert.Equal(t, 6, quote.ToToken.Decimals)
+	assert.Equal(t, domain.ChainEthereum, quote.ToToken.ChainID)
+	// Verify slippage preserved from request
+	assert.Equal(t, 0.005, quote.Slippage)
+	// Verify MinAmount is computed (0.995 * ToAmount)
+	assert.True(t, quote.MinAmount.IsPositive())
+	assert.True(t, quote.MinAmount.LessThan(quote.ToAmount))
+	// Verify ApprovalAddress is set (non-native token)
+	assert.Equal(t, "0xRouter", quote.ApprovalAddress)
+	require.NotNil(t, quote.AllowanceNeeded)
+	assert.Equal(t, int64(1_000_000), quote.AllowanceNeeded.IntPart())
 }
 
 func TestProvider_Quote_HTTPError(t *testing.T) {
@@ -97,15 +114,14 @@ func TestProvider_WithHTTPClient(t *testing.T) {
 }
 
 func TestProvider_Status_Success(t *testing.T) {
-	mock := &mockClient{statusResp: &StatusResponse{Status: "reachable"}}
-	p := &Provider{client: mock}
+	// 1inch does not provide a transaction status API.
+	// Status() returns an error indicating status tracking is not supported.
+	p := &Provider{client: &mockClient{}}
 	ctx := context.Background()
 
-	status, err := p.Status(ctx, "0xTx")
-	require.NoError(t, err)
-	require.NotNil(t, status)
-	assert.Equal(t, "completed", status.State)
-	assert.Equal(t, "0xTx", status.SrcChainTx)
+	_, err := p.Status(ctx, "0xTx")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "status tracking not supported")
 }
 
 func TestProvider_Status_Error(t *testing.T) {
@@ -169,7 +185,6 @@ func TestMapQuote_Nil(t *testing.T) {
 func TestMapQuote_InvalidTxData(t *testing.T) {
 	qr := &QuoteResponse{
 		DstAmount: "1000",
-		SrcAmount: "1000",
 		Tx:        TxData{Data: "0xzz", To: "0xRouter"},
 	}
 	_, err := mapQuote(qr, domain.QuoteRequest{
@@ -183,7 +198,6 @@ func TestMapQuote_InvalidTxData(t *testing.T) {
 func TestMapQuote_NoHexPrefix(t *testing.T) {
 	qr := &QuoteResponse{
 		DstAmount: "1000",
-		SrcAmount: "1000",
 		Tx:        TxData{Data: "deadbeef", To: "0xRouter", Value: "100"},
 	}
 	q, err := mapQuote(qr, domain.QuoteRequest{
@@ -192,4 +206,36 @@ func TestMapQuote_NoHexPrefix(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Nil(t, q.TxData)
+}
+
+func TestProvider_Quote_SlippageBasedMinAmount(t *testing.T) {
+	mock := &mockClient{
+		quoteResp: &QuoteResponse{
+			DstAmount: "1000000",
+			SrcToken:  TokenInfo{Symbol: "USDC", Address: "0xA", Decimals: 6},
+			DstToken:  TokenInfo{Symbol: "USDT", Address: "0xB", Decimals: 6},
+			Tx: TxData{
+				To:    "0xRouter",
+				Data:  "0xdeadbeef",
+				Value: "0",
+				Gas:   200000,
+			},
+			Gas: 150000,
+		},
+	}
+	p := &Provider{client: mock}
+	ctx := context.Background()
+
+	req := domain.QuoteRequest{
+		FromToken: domain.Token{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: domain.ChainEthereum},
+		ToToken:   domain.Token{Symbol: "USDT", Address: "0xB", Decimals: 6, ChainID: domain.ChainEthereum},
+		Amount:    decimal.NewFromInt(1_000_000),
+		Slippage:  0.01,
+		FromAddr:  "0xFrom",
+		ToAddr:    "0xTo",
+	}
+	quote, err := p.Quote(ctx, req)
+	require.NoError(t, err)
+	expected := decimal.NewFromInt(990_000) // 1000000 * (1 - 0.01)
+	assert.True(t, quote.MinAmount.Equal(expected), "expected %s got %s", expected, quote.MinAmount)
 }

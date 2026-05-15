@@ -2,6 +2,7 @@ package openocean
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"testing"
 	"time"
@@ -36,7 +37,7 @@ func TestProvider_Quote_Success(t *testing.T) {
 				Data:         "0xdeadbeef",
 				Value:        "0",
 				OutAmount:    "999000",
-				EstimatedGas: 200000,
+				EstimatedGas: json.Number("200000"),
 				InToken:      TokenDetail{Symbol: "USDC", Address: "0xA", Decimals: 6},
 				OutToken:     TokenDetail{Symbol: "USDT", Address: "0xB", Decimals: 6},
 				InAmount:     "1000000",
@@ -112,11 +113,11 @@ func TestNewProvider_WithAPIKey(t *testing.T) {
 }
 
 func TestProvider_Status_Error(t *testing.T) {
-	mock := &mockClient{statusErr: assert.AnError}
-	p := &Provider{client: mock}
+	p := &Provider{client: &mockClient{}}
 	ctx := context.Background()
 	_, err := p.Status(ctx, "0xtxid")
 	require.Error(t, err)
+	assert.Contains(t, err.Error(), "status tracking not supported")
 }
 
 func TestProvider_Quote_UnsupportedChain(t *testing.T) {
@@ -162,7 +163,7 @@ func TestMapQuote_InvalidOutAmount(t *testing.T) {
 				Data:         "0xdeadbeef",
 				Value:        "0",
 				OutAmount:    "not_a_number",
-				EstimatedGas: 200000,
+				EstimatedGas: json.Number("200000"),
 				InToken:      TokenDetail{Symbol: "USDC", Address: "0xA", Decimals: 6},
 				OutToken:     TokenDetail{Symbol: "USDT", Address: "0xB", Decimals: 6},
 				InAmount:     "1000000",
@@ -214,7 +215,7 @@ func TestMapQuote_NonZeroValue(t *testing.T) {
 				Data:         "0x",
 				Value:        "1000000000000000000",
 				OutAmount:    "999000",
-				EstimatedGas: 200000,
+				EstimatedGas: json.Number("200000"),
 				InToken:      TokenDetail{Symbol: "ETH", Address: "0xE", Decimals: 18},
 				OutToken:     TokenDetail{Symbol: "USDC", Address: "0xA", Decimals: 6},
 				InAmount:     "1000000000000000000",
@@ -246,7 +247,7 @@ func TestMapQuote_DataNo0xPrefix(t *testing.T) {
 				Data:         "deadbeef",
 				Value:        "0",
 				OutAmount:    "999000",
-				EstimatedGas: 200000,
+				EstimatedGas: json.Number("200000"),
 				InToken:      TokenDetail{Symbol: "USDC", Address: "0xA", Decimals: 6},
 				OutToken:     TokenDetail{Symbol: "USDT", Address: "0xB", Decimals: 6},
 				InAmount:     "1000000",
@@ -269,6 +270,107 @@ func TestMapQuote_DataNo0xPrefix(t *testing.T) {
 	assert.Empty(t, quote.TxData)
 }
 
+func TestProvider_Quote_SlippageBasedMinAmount(t *testing.T) {
+	mock := &mockClient{
+		quoteResp: &QuoteResponse{
+			Code: 200,
+			Data: &QuoteData{
+				To:           "0xRouter",
+				Data:         "0xdeadbeef",
+				Value:        "0",
+				OutAmount:    "1000000",
+				EstimatedGas: json.Number("200000"),
+				InToken:      TokenDetail{Symbol: "USDC", Address: "0xA", Decimals: 6},
+				OutToken:     TokenDetail{Symbol: "USDT", Address: "0xB", Decimals: 6},
+				InAmount:     "1000000",
+			},
+		},
+	}
+	p := &Provider{client: mock}
+	ctx := context.Background()
+
+	// 1% slippage
+	req := domain.QuoteRequest{
+		FromToken: domain.Token{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: domain.ChainEthereum},
+		ToToken:   domain.Token{Symbol: "USDT", Address: "0xB", Decimals: 6, ChainID: domain.ChainEthereum},
+		Amount:    decimal.NewFromInt(1_000_000),
+		Slippage:  0.01,
+		FromAddr:  "0xFrom",
+		ToAddr:    "0xTo",
+	}
+	quote, err := p.Quote(ctx, req)
+	require.NoError(t, err)
+	expected := decimal.NewFromInt(990_000) // 1000000 * (1 - 0.01)
+	assert.True(t, quote.MinAmount.Equal(expected), "expected %s got %s", expected, quote.MinAmount)
+}
+
+func TestProvider_Quote_ApprovalAddress(t *testing.T) {
+	mock := &mockClient{
+		quoteResp: &QuoteResponse{
+			Code: 200,
+			Data: &QuoteData{
+				To:           "0xRouter",
+				Data:         "0xdeadbeef",
+				Value:        "0",
+				OutAmount:    "999000",
+				EstimatedGas: json.Number("200000"),
+				InToken:      TokenDetail{Symbol: "USDC", Address: "0xA", Decimals: 6},
+				OutToken:     TokenDetail{Symbol: "USDT", Address: "0xB", Decimals: 6},
+				InAmount:     "1000000",
+			},
+		},
+	}
+	p := &Provider{client: mock}
+	ctx := context.Background()
+
+	req := domain.QuoteRequest{
+		FromToken: domain.Token{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: domain.ChainEthereum},
+		ToToken:   domain.Token{Symbol: "USDT", Address: "0xB", Decimals: 6, ChainID: domain.ChainEthereum},
+		Amount:    decimal.NewFromInt(1_000_000),
+		Slippage:  0.005,
+		FromAddr:  "0xFrom",
+		ToAddr:    "0xTo",
+	}
+	quote, err := p.Quote(ctx, req)
+	require.NoError(t, err)
+	assert.Equal(t, "0xRouter", quote.ApprovalAddress)
+	require.NotNil(t, quote.AllowanceNeeded)
+	assert.Equal(t, int64(1_000_000), quote.AllowanceNeeded.IntPart())
+}
+
+func TestProvider_Quote_ApprovalSkippedForNativeETH(t *testing.T) {
+	mock := &mockClient{
+		quoteResp: &QuoteResponse{
+			Code: 200,
+			Data: &QuoteData{
+				To:           "0xRouter",
+				Data:         "0x",
+				Value:        "1000000000000000000",
+				OutAmount:    "999000",
+				EstimatedGas: json.Number("200000"),
+				InToken:      TokenDetail{Symbol: "ETH", Address: "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE", Decimals: 18},
+				OutToken:     TokenDetail{Symbol: "USDC", Address: "0xA", Decimals: 6},
+				InAmount:     "1000000000000000000",
+			},
+		},
+	}
+	p := &Provider{client: mock}
+	ctx := context.Background()
+
+	req := domain.QuoteRequest{
+		FromToken: domain.Token{Symbol: "ETH", Address: "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE", Decimals: 18, ChainID: domain.ChainEthereum},
+		ToToken:   domain.Token{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: domain.ChainEthereum},
+		Amount:    decimal.NewFromInt(1_000_000_000_000_000_000),
+		Slippage:  0.005,
+		FromAddr:  "0xFrom",
+		ToAddr:    "0xTo",
+	}
+	quote, err := p.Quote(ctx, req)
+	require.NoError(t, err)
+	assert.Empty(t, quote.ApprovalAddress)
+	assert.Nil(t, quote.AllowanceNeeded)
+}
+
 func TestMapQuote_InvalidHexData(t *testing.T) {
 	mock := &mockClient{
 		quoteResp: &QuoteResponse{
@@ -278,7 +380,7 @@ func TestMapQuote_InvalidHexData(t *testing.T) {
 				Data:         "0xzz",
 				Value:        "0",
 				OutAmount:    "999000",
-				EstimatedGas: 200000,
+				EstimatedGas: json.Number("200000"),
 				InToken:      TokenDetail{Symbol: "USDC", Address: "0xA", Decimals: 6},
 				OutToken:     TokenDetail{Symbol: "USDT", Address: "0xB", Decimals: 6},
 				InAmount:     "1000000",

@@ -30,26 +30,21 @@ func (m *mockClient) Status(ctx context.Context, txID string) (*StatusResponse, 
 func TestProvider_Quote_Success(t *testing.T) {
 	mock := &mockClient{
 		quoteResp: &QuoteResponse{
-			Routes: []Route{
-				{
-					RouteID:      "sock-123",
-					ToAmount:     "999000",
-					TotalGasFees: "1.50",
-					TotalFee:     "2.00",
-					UserTxs: []UserTx{
-						{
-							TxType:   "swap",
-							TxData:   "0xdeadbeef",
-							TxTarget: "0xRouter",
-							ChainID:  "1",
-						},
-						{
-							TxType:   "fund-movr",
-							TxData:   "0xcafebabe",
-							TxTarget: "0xBridge",
-							ChainID:  "8453",
-						},
+			Success:    true,
+			StatusCode: 200,
+			Result: &QuoteResult{
+				OriginChainID:      1,
+				DestinationChainID: 8453,
+				AutoRoute: &AutoRoute{
+					UserOp:       "sign",
+					OutputAmount: "999000",
+					Output: OutputData{
+						Amount:       "999000",
+						MinAmountOut: "990000",
 					},
+					Slippage:      0.01,
+					QuoteID:       "sock-123",
+					EstimatedTime: 120,
 				},
 			},
 		},
@@ -73,15 +68,14 @@ func TestProvider_Quote_Success(t *testing.T) {
 	assert.Equal(t, "socket-sock-123", quote.ID)
 	assert.Equal(t, int64(999_000), quote.ToAmount.IntPart())
 	assert.Equal(t, "socket", quote.Provider)
-	assert.Equal(t, 2, len(quote.Route))
-	assert.Equal(t, "swap", quote.Route[0].Action)
-	assert.Equal(t, "bridge", quote.Route[1].Action)
-	assert.Equal(t, int64(2), quote.EstimateFee.IntPart())
+	assert.Equal(t, 1, len(quote.Route))
+	assert.Equal(t, "bridge", quote.Route[0].Action)
+	assert.Equal(t, 0.01, quote.Slippage)
 }
 
-func TestProvider_Quote_EmptyRoutes(t *testing.T) {
+func TestProvider_Quote_NilResult(t *testing.T) {
 	mock := &mockClient{
-		quoteResp: &QuoteResponse{Routes: []Route{}},
+		quoteResp: &QuoteResponse{Success: true, StatusCode: 200},
 	}
 	p := &Provider{client: mock}
 	ctx := context.Background()
@@ -96,7 +90,32 @@ func TestProvider_Quote_EmptyRoutes(t *testing.T) {
 
 	quote, err := p.Quote(ctx, req)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no routes found")
+	assert.Contains(t, err.Error(), "no route found")
+	assert.Nil(t, quote)
+}
+
+func TestProvider_Quote_NilAutoRoute(t *testing.T) {
+	mock := &mockClient{
+		quoteResp: &QuoteResponse{
+			Success:    true,
+			StatusCode: 200,
+			Result:     &QuoteResult{},
+		},
+	}
+	p := &Provider{client: mock}
+	ctx := context.Background()
+	req := domain.QuoteRequest{
+		FromToken: domain.Token{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: domain.ChainEthereum},
+		ToToken:   domain.Token{Symbol: "USDT", Address: "0xB", Decimals: 6, ChainID: domain.ChainBase},
+		Amount:    decimal.NewFromInt(1_000_000),
+		Slippage:  0.005,
+		FromAddr:  "0xFrom",
+		ToAddr:    "0xTo",
+	}
+
+	quote, err := p.Quote(ctx, req)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no route found")
 	assert.Nil(t, quote)
 }
 
@@ -121,10 +140,17 @@ func TestProvider_Status_Success(t *testing.T) {
 	mock := &mockClient{
 		statusResp: &StatusResponse{
 			Success: true,
-			Result: Result{
-				SourceTxHash:      "0xSrc",
-				DestinationTxHash: "0xDst",
-				Status:            "completed",
+			Result: []StatusResult{
+				{
+					OriginData: OriginData{
+						TxHash: "0xSrc",
+						Status: "COMPLETED",
+					},
+					DestinationData: DestinationData{
+						TxHash: "0xDst",
+						Status: "COMPLETED",
+					},
+				},
 			},
 		},
 	}
@@ -153,7 +179,7 @@ func TestProvider_Status_Error(t *testing.T) {
 }
 
 func TestProvider_Quote_UnsupportedChain(t *testing.T) {
-	mock := &mockClient{quoteResp: &QuoteResponse{Routes: []Route{{RouteID: "1"}}}}
+	mock := &mockClient{}
 	p := &Provider{client: mock}
 	ctx := context.Background()
 
@@ -207,6 +233,112 @@ func TestNewProvider_WithAPIKey(t *testing.T) {
 	assert.Equal(t, "test-key", c.apiKey)
 }
 
+func TestMapQuote_ApprovalData(t *testing.T) {
+	qr := &QuoteResponse{
+		Success:    true,
+		StatusCode: 200,
+		Result: &QuoteResult{
+			OriginChainID:      1,
+			DestinationChainID: 8453,
+			AutoRoute: &AutoRoute{
+				OutputAmount: "999000",
+				Output: OutputData{
+					Amount:       "999000",
+					MinAmountOut: "990000",
+				},
+				QuoteID:  "sock-456",
+				Slippage: 0.01,
+				ApprovalData: &ApprovalData{
+					SpenderAddress: "0xSpender",
+					Amount:         "1000000",
+					TokenAddress:   "0xA",
+				},
+			},
+		},
+	}
+	quote, err := mapQuote(qr, domain.QuoteRequest{
+		FromToken: domain.Token{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: domain.ChainEthereum},
+		ToToken:   domain.Token{Symbol: "USDT", Address: "0xB", Decimals: 6, ChainID: domain.ChainBase},
+		Amount:    decimal.NewFromInt(1_000_000),
+		Slippage:  0.005,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "0xSpender", quote.ApprovalAddress)
+	require.NotNil(t, quote.AllowanceNeeded)
+	assert.True(t, quote.AllowanceNeeded.Equal(decimal.NewFromInt(1_000_000)))
+}
+
+func TestMapQuote_NoApprovalData(t *testing.T) {
+	qr := &QuoteResponse{
+		Success:    true,
+		StatusCode: 200,
+		Result: &QuoteResult{
+			OriginChainID:      1,
+			DestinationChainID: 8453,
+			AutoRoute: &AutoRoute{
+				OutputAmount: "999000",
+				Output: OutputData{
+					Amount:       "999000",
+					MinAmountOut: "990000",
+				},
+				QuoteID: "sock-789",
+			},
+		},
+	}
+	quote, err := mapQuote(qr, domain.QuoteRequest{
+		FromToken: domain.Token{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: domain.ChainEthereum},
+		ToToken:   domain.Token{Symbol: "USDT", Address: "0xB", Decimals: 6, ChainID: domain.ChainBase},
+		Amount:    decimal.NewFromInt(1_000_000),
+		Slippage:  0.005,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, quote.ApprovalAddress)
+	assert.Nil(t, quote.AllowanceNeeded)
+}
+
+func TestMapQuote_InvalidOutputAmount(t *testing.T) {
+	qr := &QuoteResponse{
+		Success:    true,
+		StatusCode: 200,
+		Result: &QuoteResult{
+			AutoRoute: &AutoRoute{
+				OutputAmount: "not-a-number",
+				QuoteID:      "sock-err",
+			},
+		},
+	}
+	quote, err := mapQuote(qr, domain.QuoteRequest{
+		FromToken: domain.Token{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: domain.ChainEthereum},
+		ToToken:   domain.Token{Symbol: "USDT", Address: "0xB", Decimals: 6, ChainID: domain.ChainBase},
+		Amount:    decimal.NewFromInt(1_000_000),
+		Slippage:  0.005,
+	})
+	require.NoError(t, err)
+	assert.True(t, quote.ToAmount.IsZero())
+}
+
+func TestMapQuote_SlippageFromAPI(t *testing.T) {
+	qr := &QuoteResponse{
+		Success:    true,
+		StatusCode: 200,
+		Result: &QuoteResult{
+			AutoRoute: &AutoRoute{
+				OutputAmount: "999000",
+				Slippage:     0.03,
+				QuoteID:      "sock-slip",
+			},
+		},
+	}
+	quote, err := mapQuote(qr, domain.QuoteRequest{
+		FromToken: domain.Token{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: domain.ChainEthereum},
+		ToToken:   domain.Token{Symbol: "USDT", Address: "0xB", Decimals: 6, ChainID: domain.ChainBase},
+		Amount:    decimal.NewFromInt(1_000_000),
+		Slippage:  0.005,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 0.03, quote.Slippage)
+}
+
 func TestMapQuote_NilResponse(t *testing.T) {
 	req := domain.QuoteRequest{
 		FromToken: domain.Token{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: domain.ChainEthereum},
@@ -218,154 +350,31 @@ func TestMapQuote_NilResponse(t *testing.T) {
 	}
 	quote, err := mapQuote(nil, req)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "empty quote response")
+	assert.Contains(t, err.Error(), "no route found")
 	assert.Nil(t, quote)
 }
 
-func TestMapQuote_InvalidToAmountDecimal(t *testing.T) {
-	mock := &mockClient{
-		quoteResp: &QuoteResponse{
-			Routes: []Route{
-				{
-					RouteID:  "sock-123",
-					ToAmount: "not-a-number",
+func TestMapQuote_MinAmountFromAPI(t *testing.T) {
+	qr := &QuoteResponse{
+		Success:    true,
+		StatusCode: 200,
+		Result: &QuoteResult{
+			AutoRoute: &AutoRoute{
+				OutputAmount: "1000000",
+				Output: OutputData{
+					Amount:       "1000000",
+					MinAmountOut: "985000",
 				},
+				QuoteID: "sock-min",
 			},
 		},
 	}
-	p := &Provider{client: mock}
-	ctx := context.Background()
-	req := domain.QuoteRequest{
+	quote, err := mapQuote(qr, domain.QuoteRequest{
 		FromToken: domain.Token{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: domain.ChainEthereum},
 		ToToken:   domain.Token{Symbol: "USDT", Address: "0xB", Decimals: 6, ChainID: domain.ChainBase},
 		Amount:    decimal.NewFromInt(1_000_000),
 		Slippage:  0.005,
-		FromAddr:  "0xFrom",
-		ToAddr:    "0xTo",
-	}
-	quote, err := p.Quote(ctx, req)
+	})
 	require.NoError(t, err)
-	assert.True(t, quote.ToAmount.IsZero())
-}
-
-func TestMapQuote_EmptyUserTxs(t *testing.T) {
-	mock := &mockClient{
-		quoteResp: &QuoteResponse{
-			Routes: []Route{
-				{
-					RouteID:      "sock-123",
-					ToAmount:     "999000",
-					TotalGasFees: "1.50",
-					UserTxs:      []UserTx{},
-				},
-			},
-		},
-	}
-	p := &Provider{client: mock}
-	ctx := context.Background()
-	req := domain.QuoteRequest{
-		FromToken: domain.Token{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: domain.ChainEthereum},
-		ToToken:   domain.Token{Symbol: "USDT", Address: "0xB", Decimals: 6, ChainID: domain.ChainBase},
-		Amount:    decimal.NewFromInt(1_000_000),
-		Slippage:  0.005,
-		FromAddr:  "0xFrom",
-		ToAddr:    "0xTo",
-	}
-	quote, err := p.Quote(ctx, req)
-	require.NoError(t, err)
-	assert.Empty(t, quote.Route)
-	assert.Empty(t, quote.TxData)
-	assert.Equal(t, "", quote.To)
-}
-
-func TestMapQuote_InvalidHexData(t *testing.T) {
-	mock := &mockClient{
-		quoteResp: &QuoteResponse{
-			Routes: []Route{
-				{
-					RouteID:  "sock-123",
-					ToAmount: "999000",
-					UserTxs: []UserTx{
-						{
-							TxType:   "swap",
-							TxData:   "0xGGGGGGGG", // invalid hex
-							TxTarget: "0xRouter",
-							ChainID:  "1",
-						},
-					},
-				},
-			},
-		},
-	}
-	p := &Provider{client: mock}
-	ctx := context.Background()
-	req := domain.QuoteRequest{
-		FromToken: domain.Token{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: domain.ChainEthereum},
-		ToToken:   domain.Token{Symbol: "USDT", Address: "0xB", Decimals: 6, ChainID: domain.ChainBase},
-		Amount:    decimal.NewFromInt(1_000_000),
-		Slippage:  0.005,
-		FromAddr:  "0xFrom",
-		ToAddr:    "0xTo",
-	}
-	_, err := p.Quote(ctx, req)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid tx data")
-}
-
-func TestMapQuote_InvalidTotalFeeDecimal(t *testing.T) {
-	mock := &mockClient{
-		quoteResp: &QuoteResponse{
-			Routes: []Route{
-				{
-					RouteID:      "sock-123",
-					ToAmount:     "999000",
-					TotalFee:     "invalid",
-					TotalGasFees: "",
-					UserTxs:      []UserTx{},
-				},
-			},
-		},
-	}
-	p := &Provider{client: mock}
-	ctx := context.Background()
-	req := domain.QuoteRequest{
-		FromToken: domain.Token{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: domain.ChainEthereum},
-		ToToken:   domain.Token{Symbol: "USDT", Address: "0xB", Decimals: 6, ChainID: domain.ChainBase},
-		Amount:    decimal.NewFromInt(1_000_000),
-		Slippage:  0.005,
-		FromAddr:  "0xFrom",
-		ToAddr:    "0xTo",
-	}
-	quote, err := p.Quote(ctx, req)
-	require.NoError(t, err)
-	assert.True(t, quote.EstimateFee.IsZero())
-}
-
-func TestMapQuote_InvalidGasFeesDecimal(t *testing.T) {
-	mock := &mockClient{
-		quoteResp: &QuoteResponse{
-			Routes: []Route{
-				{
-					RouteID:      "sock-123",
-					ToAmount:     "999000",
-					TotalFee:     "",
-					TotalGasFees: "also-invalid",
-					UserTxs:      []UserTx{},
-				},
-			},
-		},
-	}
-	p := &Provider{client: mock}
-	ctx := context.Background()
-	req := domain.QuoteRequest{
-		FromToken: domain.Token{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: domain.ChainEthereum},
-		ToToken:   domain.Token{Symbol: "USDT", Address: "0xB", Decimals: 6, ChainID: domain.ChainBase},
-		Amount:    decimal.NewFromInt(1_000_000),
-		Slippage:  0.005,
-		FromAddr:  "0xFrom",
-		ToAddr:    "0xTo",
-	}
-	quote, err := p.Quote(ctx, req)
-	require.NoError(t, err)
-	assert.True(t, quote.EstimateFee.IsZero())
+	assert.Equal(t, int64(985000), quote.MinAmount.IntPart())
 }

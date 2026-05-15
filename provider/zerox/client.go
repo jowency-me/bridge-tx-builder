@@ -1,4 +1,10 @@
 // Package zerox provides a quote adapter for the 0x Protocol DEX aggregation API.
+//
+// API Reference:
+//
+//	Quote: https://0x.org/docs/api
+//	Status: https://0x.org/docs/api
+//	API version: v2 (verified 2026-05-15)
 package zerox
 
 import (
@@ -41,21 +47,40 @@ type QuoteParams struct {
 
 // QuoteResponse contains raw zerox quote response data.
 type QuoteResponse struct {
-	Price            string       `json:"price"`
-	GuaranteedPrice  string       `json:"guaranteedPrice"`
-	To               string       `json:"to"`
-	Data             string       `json:"data"`
-	Value            string       `json:"value"`
-	Gas              string       `json:"gas"`
-	BuyAmount        string       `json:"buyAmount"`
-	SellAmount       string       `json:"sellAmount"`
-	BuyTokenAddress  string       `json:"buyTokenAddress"`
-	SellTokenAddress string       `json:"sellTokenAddress"`
-	BuyToken         string       `json:"buyToken"`
-	SellToken        string       `json:"sellToken"`
-	Sources          []SourceInfo `json:"sources"`
-	Fee              FeeInfo      `json:"fee"`
-	Transaction      TxData       `json:"transaction"`
+	BuyAmount       string    `json:"buyAmount"`
+	SellAmount      string    `json:"sellAmount"`
+	MinBuyAmount    string    `json:"minBuyAmount"`
+	BuyToken        string    `json:"buyToken"`
+	SellToken       string    `json:"sellToken"`
+	AllowanceTarget string    `json:"allowanceTarget"`
+	Route           RouteData `json:"route"`
+	Fees            FeeData   `json:"fees"`
+	Transaction     TxData    `json:"transaction"`
+}
+
+// RouteData contains 0x v2 route fill information.
+type RouteData struct {
+	Fills []RouteFill `json:"fills"`
+}
+
+// RouteFill represents a single fill in the 0x v2 route.
+type RouteFill struct {
+	From       string `json:"from"`
+	To         string `json:"to"`
+	Source     string `json:"source"`
+	Proportion string `json:"proportionBps"`
+}
+
+// FeeData contains 0x v2 fee information.
+type FeeData struct {
+	ZeroExFee *ZeroExFee `json:"zeroExFee"`
+}
+
+// ZeroExFee contains the 0x protocol fee details.
+type ZeroExFee struct {
+	Amount string `json:"amount"`
+	Token  string `json:"token"`
+	Type   string `json:"type"`
 }
 
 // TxData contains 0x v2 transaction payload data.
@@ -65,19 +90,6 @@ type TxData struct {
 	Value    string `json:"value"`
 	Gas      string `json:"gas"`
 	GasPrice string `json:"gasPrice"`
-}
-
-// SourceInfo contains provider-specific API data.
-type SourceInfo struct {
-	Name       string `json:"name"`
-	Proportion string `json:"proportion"`
-}
-
-// FeeInfo contains provider-specific API data.
-type FeeInfo struct {
-	FeeType   string `json:"feeType"`
-	FeeToken  string `json:"feeToken"`
-	FeeAmount string `json:"feeAmount"`
 }
 
 // StatusResponse contains raw zerox status response data.

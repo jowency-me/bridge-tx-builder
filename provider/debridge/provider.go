@@ -91,14 +91,13 @@ func (p *Provider) Quote(ctx context.Context, req domain.QuoteRequest) (*domain.
 		DstChainOrderAuthorityAddress: req.ToAddr,
 		DstChainTokenOutRecipient:     req.ToAddr,
 		DstChainTokenOutAmount:        "auto",
-		Slippage:                      strconv.FormatFloat(req.Slippage*100, 'f', 2, 64),
 	}
 
 	qr, err := p.client.Quote(ctx, params)
 	if err != nil {
 		return nil, err
 	}
-	return mapQuote(qr)
+	return mapQuote(qr, req)
 }
 
 // Status returns the status of a transaction.
@@ -113,31 +112,23 @@ func (p *Provider) Status(ctx context.Context, txID string) (*domain.Status, err
 	}, nil
 }
 
-func mapQuote(qr *QuoteResponse) (*domain.Quote, error) {
+func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error) {
 	if qr == nil {
 		return nil, fmt.Errorf("%s: empty quote response", Name)
 	}
-	fromAmt, err := decimal.NewFromString(qr.EstimateFromAmount)
-	if err != nil {
-		fromAmt = decimal.Zero
-	}
-	toAmt, err := decimal.NewFromString(qr.EstimateToAmount)
+
+	toAmt, err := decimal.NewFromString(qr.Estimation.DstChainTokenOut.Amount)
 	if err != nil {
 		toAmt = decimal.Zero
+	}
+	fromAmt, err := decimal.NewFromString(qr.Estimation.SrcChainTokenIn.Amount)
+	if err != nil {
+		fromAmt = decimal.Zero
 	}
 
 	var estFee decimal.Decimal
 	if !fromAmt.IsZero() && !toAmt.IsZero() && fromAmt.GreaterThan(toAmt) {
 		estFee = fromAmt.Sub(toAmt)
-	}
-
-	var gas uint64
-	if qr.Tx.GasLimit != "" {
-		g, err := strconv.ParseUint(qr.Tx.GasLimit, 10, 64)
-		if err != nil {
-			return nil, fmt.Errorf("%s: parse gas limit: %w", Name, err)
-		}
-		gas = g
 	}
 
 	var txData []byte
@@ -156,25 +147,43 @@ func mapQuote(qr *QuoteResponse) (*domain.Quote, error) {
 		}
 	}
 
-	return &domain.Quote{
+	quote := &domain.Quote{
 		ID:          qr.OrderID,
-		FromToken:   mapToken(qr.TokenIn),
-		ToToken:     mapToken(qr.TokenOut),
+		FromToken:   mapSrcToken(qr.Estimation.SrcChainTokenIn),
+		ToToken:     mapDstToken(qr.Estimation.DstChainTokenOut),
 		FromAmount:  fromAmt,
 		ToAmount:    toAmt,
-		MinAmount:   toAmt.Mul(decimal.NewFromInt(995)).Div(decimal.NewFromInt(1000)),
-		Slippage:    0.005,
+		MinAmount:   toAmt.Mul(decimal.NewFromFloat(1 - req.Slippage)),
+		Slippage:    req.Slippage,
 		Provider:    string(Name),
 		Deadline:    time.Now().Add(10 * time.Minute),
 		To:          qr.Tx.To,
 		TxData:      txData,
 		TxValue:     txValue,
-		EstimateGas: gas,
 		EstimateFee: estFee,
-	}, nil
+	}
+
+	if qr.Tx.To != "" &&
+		!strings.EqualFold(qr.Estimation.SrcChainTokenIn.Address, "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE") &&
+		!strings.EqualFold(qr.Estimation.SrcChainTokenIn.Address, "0x0000000000000000000000000000000000000000") {
+		quote.ApprovalAddress = qr.Tx.To
+		allowance := fromAmt
+		quote.AllowanceNeeded = &allowance
+	}
+
+	return quote, nil
 }
 
-func mapToken(t TokenInfo) domain.Token {
+func mapSrcToken(t SrcChainTokenInfo) domain.Token {
+	return domain.Token{
+		Symbol:   t.Symbol,
+		Address:  t.Address,
+		Decimals: t.Decimals,
+		ChainID:  domain.NumericToChainID(strconv.Itoa(t.ChainID)),
+	}
+}
+
+func mapDstToken(t DstChainTokenInfo) domain.Token {
 	return domain.Token{
 		Symbol:   t.Symbol,
 		Address:  t.Address,

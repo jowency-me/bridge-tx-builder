@@ -1,4 +1,9 @@
 // Package openocean provides a quote adapter for the OpenOcean DEX aggregation API.
+//
+// API Reference:
+//
+//	Quote: https://docs.openocean.finance/dev/aggregator-and-dex-api/aggregator-api
+//	API version: v3 (verified 2026-05-15)
 package openocean
 
 import (
@@ -7,6 +12,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 )
 
@@ -52,17 +58,30 @@ type QuoteData struct {
 	Data         string      `json:"data"`
 	Value        string      `json:"value"`
 	OutAmount    string      `json:"outAmount"`
-	EstimatedGas uint64      `json:"estimatedGas"`
+	EstimatedGas json.Number `json:"estimatedGas"`
 	InToken      TokenDetail `json:"inToken"`
 	OutToken     TokenDetail `json:"outToken"`
 	InAmount     string      `json:"inAmount"`
 }
 
+// EstimatedGasUint returns the estimated gas as uint64, handling both string and numeric JSON values.
+func (d *QuoteData) EstimatedGasUint() uint64 {
+	s := d.EstimatedGas.String()
+	if s == "" {
+		return 0
+	}
+	n, err := strconv.ParseUint(s, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
 // QuoteResponse contains raw openocean quote response data.
 type QuoteResponse struct {
-	Code     int        `json:"code"`
-	ErrorMsg string     `json:"errorMsg"`
-	Data     *QuoteData `json:"data"`
+	Code    int        `json:"code"`
+	Message string     `json:"message"`
+	Data    *QuoteData `json:"data"`
 }
 
 // Quote fetches a quote from the provider /{chain}/swap_quote API endpoint.
@@ -106,7 +125,7 @@ func (c *Client) Quote(ctx context.Context, params QuoteParams) (*QuoteResponse,
 		return nil, fmt.Errorf("openocean quote decode: %w", err)
 	}
 	if qr.Code != 200 {
-		return nil, fmt.Errorf("openocean quote error: %s", qr.ErrorMsg)
+		return nil, fmt.Errorf("openocean quote error: %s", qr.Message)
 	}
 	return &qr, nil
 }

@@ -1,4 +1,10 @@
 // Package oneinch provides a quote adapter for the 1inch Aggregation API.
+//
+// API Reference:
+//
+//	Quote: https://business.1inch.com/portal/documentation/apis/swap/classic-swap/methods/v6.1/1/quote/method/get
+//	Swap:  https://business.1inch.com/portal/documentation/apis/swap/classic-swap/methods/v6.1/1/swap/method/get
+//	API version: v6.1 (verified 2026-05-15)
 package oneinch
 
 import (
@@ -7,6 +13,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 )
 
@@ -35,9 +42,9 @@ type QuoteParams struct {
 	Dst              string
 	Amount           string
 	From             string
-	Slippage         string
-	DisableEstimate  string
-	AllowPartialFill string
+	Slippage         float64
+	DisableEstimate  bool
+	AllowPartialFill bool
 }
 
 // TokenInfo contains provider token metadata.
@@ -46,27 +53,47 @@ type TokenInfo struct {
 	Symbol   string `json:"symbol"`
 	Name     string `json:"name"`
 	Decimals int    `json:"decimals"`
+	LogoURI  string `json:"logoURI"`
 }
 
 // TxData contains provider transaction payload data.
 type TxData struct {
-	From     string `json:"from"`
-	To       string `json:"to"`
-	Data     string `json:"data"`
-	Value    string `json:"value"`
-	Gas      uint64 `json:"gas"`
-	GasPrice string `json:"gasPrice"`
+	From  string `json:"from"`
+	To    string `json:"to"`
+	Data  string `json:"data"`
+	Value string `json:"value"`
+	Gas   uint64 `json:"gas"`
 }
 
 // QuoteResponse contains raw 1inch quote response data.
 type QuoteResponse struct {
-	DstAmount string      `json:"dstAmount"`
-	SrcAmount string      `json:"srcAmount"`
-	FromToken TokenInfo   `json:"fromToken"`
-	ToToken   TokenInfo   `json:"toToken"`
-	Protocols interface{} `json:"protocols"`
-	Tx        TxData      `json:"tx"`
-	Gas       uint64      `json:"gas"`
+	DstAmount string       `json:"dstAmount"`
+	SrcToken  TokenInfo    `json:"srcToken"`
+	DstToken  TokenInfo    `json:"dstToken"`
+	Protocols []TokenSwaps `json:"protocols"`
+	Tx        TxData       `json:"tx"`
+	Gas       uint64       `json:"gas"`
+}
+
+// TokenSwaps represents a token entry in the protocols response.
+type TokenSwaps struct {
+	Token string     `json:"token"`
+	Hops  []TokenHop `json:"hops"`
+}
+
+// TokenHop represents a hop within a token swap route.
+type TokenHop struct {
+	Part        int                       `json:"part"`
+	Dst         string                    `json:"dst"`
+	FromTokenID int                       `json:"fromTokenId"`
+	ToTokenID   int                       `json:"toTokenId"`
+	Protocols   []SelectedLiquiditySource `json:"protocols"`
+}
+
+// SelectedLiquiditySource represents a protocol used in a hop.
+type SelectedLiquiditySource struct {
+	Name string `json:"name"`
+	Part int    `json:"part"`
 }
 
 // StatusResponse contains raw 1inch status response data.
@@ -76,7 +103,7 @@ type StatusResponse struct {
 
 // Quote fetches a quote from the provider API.
 func (c *Client) Quote(ctx context.Context, params QuoteParams) (*QuoteResponse, error) {
-	u, err := url.Parse(fmt.Sprintf("%s/swap/v6.1/%s/swap", c.baseURL, params.ChainID))
+	u, err := url.Parse(fmt.Sprintf("%s/swap/v6.1/%s/quote", c.baseURL, params.ChainID))
 	if err != nil {
 		return nil, err
 	}
@@ -87,14 +114,14 @@ func (c *Client) Quote(ctx context.Context, params QuoteParams) (*QuoteResponse,
 	if params.From != "" {
 		q.Set("from", params.From)
 	}
-	if params.Slippage != "" {
-		q.Set("slippage", params.Slippage)
+	if params.Slippage > 0 {
+		q.Set("slippage", strconv.FormatFloat(params.Slippage, 'f', -1, 64))
 	}
-	if params.DisableEstimate != "" {
-		q.Set("disableEstimate", params.DisableEstimate)
+	if params.DisableEstimate {
+		q.Set("disableEstimate", "true")
 	}
-	if params.AllowPartialFill != "" {
-		q.Set("allowPartialFill", params.AllowPartialFill)
+	if params.AllowPartialFill {
+		q.Set("allowPartialFill", "true")
 	}
 	u.RawQuery = q.Encode()
 

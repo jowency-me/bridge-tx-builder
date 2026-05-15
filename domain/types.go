@@ -42,27 +42,29 @@ type RouteStep struct {
 
 // Quote represents a cross-chain swap/bridge quote from a provider.
 type Quote struct {
-	ID          string
-	FromToken   Token
-	ToToken     Token
-	FromAmount  decimal.Decimal // in wei / lamports / sun
-	ToAmount    decimal.Decimal // expected output in destination units
-	MinAmount   decimal.Decimal // minimum output after slippage
-	Slippage    float64         // e.g. 0.005 = 0.5%
-	Provider    string
-	Route       []RouteStep
-	Deadline    time.Time
-	To          string          // target contract / router address
-	TxData      []byte          // chain-specific call data (EVM calldata, Solana instruction data, Tron contract data)
-	TxValue     decimal.Decimal // native value to send
-	EstimateGas uint64
-	EstimateFee decimal.Decimal
-	GasPrice    decimal.Decimal // for legacy EVM transactions
-	GasTipCap   decimal.Decimal // for EIP-1559 priority fee
-	GasFeeCap   decimal.Decimal // for EIP-1559 max fee
-	BlockHash   string          // recent block hash (Solana, Tron, etc.)
-	BlockHeight uint64          // block height for ref block derivation (Tron, etc.)
-	Nonce       *uint64         // optional nonce for EVM transactions (nil = caller manages)
+	ID              string
+	FromToken       Token
+	ToToken         Token
+	FromAmount      decimal.Decimal // in wei / lamports / sun
+	ToAmount        decimal.Decimal // expected output in destination units
+	MinAmount       decimal.Decimal // minimum output after slippage
+	Slippage        float64         // e.g. 0.005 = 0.5%
+	Provider        string
+	Route           []RouteStep
+	Deadline        time.Time
+	To              string          // target contract / router address
+	TxData          []byte          // chain-specific call data (EVM calldata, Solana instruction data, Tron contract data)
+	TxValue         decimal.Decimal // native value to send
+	EstimateGas     uint64
+	EstimateFee     decimal.Decimal
+	GasPrice        decimal.Decimal  // for legacy EVM transactions
+	GasTipCap       decimal.Decimal  // for EIP-1559 priority fee
+	GasFeeCap       decimal.Decimal  // for EIP-1559 max fee
+	BlockHash       string           // recent block hash (Solana, Tron, etc.)
+	BlockHeight     uint64           // block height for ref block derivation (Tron, etc.)
+	Nonce           *uint64          // optional nonce for EVM transactions (nil = caller manages)
+	ApprovalAddress string           // spender address requiring ERC-20 approval
+	AllowanceNeeded *decimal.Decimal // amount to approve
 }
 
 // Validate checks quote fields.

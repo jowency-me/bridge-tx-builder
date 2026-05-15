@@ -1,4 +1,10 @@
-// Package socket provides a quote adapter for the Socket cross-chain bridge.
+// Package socket provides a quote adapter for the Bungee (formerly Socket) cross-chain bridge.
+//
+// API Reference:
+//
+//	Quote: https://docs.bungee.exchange
+//	Status: https://docs.bungee.exchange
+//	API version: v2 (verified 2026-05-15)
 package socket
 
 import (
@@ -10,7 +16,7 @@ import (
 	"time"
 )
 
-const defaultBaseURL = "https://api.socket.tech"
+const defaultBaseURL = "https://public-backend.bungee.exchange"
 
 // Client is the raw HTTP client for Socket Protocol API.
 type Client struct {
@@ -29,86 +35,144 @@ func NewClient() *Client {
 
 // QuoteParams contains raw socket quote request parameters.
 type QuoteParams struct {
-	FromChainID      string
-	ToChainID        string
-	FromTokenAddress string
-	ToTokenAddress   string
-	FromAmount       string
+	FromChainID      string // maps to originChainId
+	ToChainID        string // maps to destinationChainId
+	FromTokenAddress string // maps to inputToken
+	ToTokenAddress   string // maps to outputToken
+	FromAmount       string // maps to inputAmount
 	UserAddress      string
-	Recipient        string
+	Recipient        string // maps to receiverAddress
 	Slippage         string
 }
 
 // QuoteResponse contains raw socket quote response data.
 type QuoteResponse struct {
-	Routes []Route `json:"routes"`
+	Success    bool         `json:"success"`
+	StatusCode int          `json:"statusCode"`
+	Result     *QuoteResult `json:"result"`
+	Message    *string      `json:"message"`
 }
 
-// Route contains a provider route candidate.
-type Route struct {
-	RouteID          string            `json:"routeId"`
-	ToAmount         string            `json:"toAmount"`
-	TotalGasFees     string            `json:"totalGasFeesInUsd"`
-	TotalFee         string            `json:"totalFeeInUsd"`
-	UserTxs          []UserTx          `json:"userTxs"`
-	Sender           string            `json:"sender"`
-	ApprovalData     ApprovalData      `json:"approvalData"`
-	ChainGasBalances []ChainGasBalance `json:"chainGasBalances"`
+// QuoteResult contains the quote result data.
+type QuoteResult struct {
+	OriginChainID      int        `json:"originChainId"`
+	DestinationChainID int        `json:"destinationChainId"`
+	UserAddress        string     `json:"userAddress"`
+	ReceiverAddress    string     `json:"receiverAddress"`
+	Input              InputData  `json:"input"`
+	AutoRoute          *AutoRoute `json:"autoRoute"`
 }
 
-// UserTx contains a provider user transaction.
-type UserTx struct {
-	TxType    string `json:"txType"`
-	TxData    string `json:"txData"`
-	TxTarget  string `json:"txTarget"`
-	ChainID   string `json:"chainId"`
-	ToAmount  string `json:"toAmount"`
-	StepCount int    `json:"stepCount"`
-	RoutePath string `json:"routePath"`
+// InputData contains the input token and amount data.
+type InputData struct {
+	Token      TokenData `json:"token"`
+	Amount     string    `json:"amount"`
+	PriceInUsd float64   `json:"priceInUsd"`
+	ValueInUsd float64   `json:"valueInUsd"`
+}
+
+// TokenData contains token metadata from the API.
+type TokenData struct {
+	ChainID  int    `json:"chainId"`
+	Address  string `json:"address"`
+	Name     string `json:"name"`
+	Symbol   string `json:"symbol"`
+	Decimals int    `json:"decimals"`
+	LogoURI  string `json:"logoURI"`
+	Icon     string `json:"icon"`
+}
+
+// AutoRoute contains the auto-routing result data.
+type AutoRoute struct {
+	UserOp        string        `json:"userOp"`
+	RequestHash   string        `json:"requestHash"`
+	Output        OutputData    `json:"output"`
+	RequestType   string        `json:"requestType"`
+	ApprovalData  *ApprovalData `json:"approvalData"`
+	GasFee        interface{}   `json:"gasFee"`
+	Slippage      float64       `json:"slippage"`
+	TxData        interface{}   `json:"txData"`
+	EstimatedTime int           `json:"estimatedTime"`
+	RouteDetails  RouteDetails  `json:"routeDetails"`
+	QuoteID       string        `json:"quoteId"`
+	QuoteExpiry   int64         `json:"quoteExpiry"`
+	OutputAmount  string        `json:"outputAmount"`
+	RouteTags     []string      `json:"routeTags"`
+}
+
+// OutputData contains the output token and amount data.
+type OutputData struct {
+	Token                  TokenData `json:"token"`
+	PriceInUsd             float64   `json:"priceInUsd"`
+	ValueInUsd             float64   `json:"valueInUsd"`
+	MinAmountOut           string    `json:"minAmountOut"`
+	Amount                 string    `json:"amount"`
+	EffectiveAmount        string    `json:"effectiveAmount"`
+	EffectiveValueInUsd    float64   `json:"effectiveValueInUsd"`
+	EffectiveReceivedInUsd float64   `json:"effectiveReceivedInUsd"`
 }
 
 // ApprovalData contains provider approval transaction data.
 type ApprovalData struct {
-	ApprovalTokenAddress  string `json:"approvalTokenAddress"`
-	AllowanceTarget       string `json:"allowanceTarget"`
-	MinimumApprovalAmount string `json:"minimumApprovalAmount"`
+	SpenderAddress string `json:"spenderAddress"`
+	Amount         string `json:"amount"`
+	TokenAddress   string `json:"tokenAddress"`
+	UserAddress    string `json:"userAddress"`
 }
 
-// ChainGasBalance contains provider gas balance metadata.
-type ChainGasBalance struct {
-	ChainID string `json:"chainId"`
-	Balance string `json:"balance"`
+// RouteDetails contains route metadata.
+type RouteDetails struct {
+	Name       string      `json:"name"`
+	LogoURI    string      `json:"logoURI"`
+	RouteFee   interface{} `json:"routeFee"`
+	DexDetails interface{} `json:"dexDetails"`
 }
 
 // StatusResponse contains raw socket status response data.
 type StatusResponse struct {
-	Success bool   `json:"success"`
-	Result  Result `json:"result"`
+	Success    bool           `json:"success"`
+	StatusCode int            `json:"statusCode"`
+	Result     []StatusResult `json:"result"`
 }
 
-// Result contains provider status result data.
-type Result struct {
-	SourceTxHash      string `json:"sourceTxHash"`
-	DestinationTxHash string `json:"destinationTxHash"`
-	FromChainID       string `json:"fromChainId"`
-	ToChainID         string `json:"toChainId"`
-	Status            string `json:"status"`
+// StatusResult contains provider status result data.
+type StatusResult struct {
+	Hash             string          `json:"hash"`
+	OriginData       OriginData      `json:"originData"`
+	DestinationData  DestinationData `json:"destinationData"`
+	BungeeStatusCode int             `json:"bungeeStatusCode"`
+}
+
+// OriginData contains the source chain status data.
+type OriginData struct {
+	TxHash        string `json:"txHash"`
+	OriginChainID int    `json:"originChainId"`
+	Status        string `json:"status"`
+	UserAddress   string `json:"userAddress"`
+}
+
+// DestinationData contains the destination chain status data.
+type DestinationData struct {
+	TxHash             string `json:"txHash"`
+	DestinationChainID int    `json:"destinationChainId"`
+	ReceiverAddress    string `json:"receiverAddress"`
+	Status             string `json:"status"`
 }
 
 // Quote fetches a quote from the provider API.
 func (c *Client) Quote(ctx context.Context, params QuoteParams) (*QuoteResponse, error) {
-	u, err := url.Parse(c.baseURL + "/v2/quote")
+	u, err := url.Parse(c.baseURL + "/api/v1/bungee/quote")
 	if err != nil {
 		return nil, err
 	}
 	q := u.Query()
-	q.Set("fromChainId", params.FromChainID)
-	q.Set("toChainId", params.ToChainID)
-	q.Set("fromTokenAddress", params.FromTokenAddress)
-	q.Set("toTokenAddress", params.ToTokenAddress)
-	q.Set("fromAmount", params.FromAmount)
+	q.Set("originChainId", params.FromChainID)
+	q.Set("destinationChainId", params.ToChainID)
+	q.Set("inputToken", params.FromTokenAddress)
+	q.Set("outputToken", params.ToTokenAddress)
+	q.Set("inputAmount", params.FromAmount)
 	q.Set("userAddress", params.UserAddress)
-	q.Set("recipient", params.Recipient)
+	q.Set("receiverAddress", params.Recipient)
 	q.Set("uniqueRoutesPerBridge", "true")
 	q.Set("sort", "output")
 	if params.Slippage != "" {
@@ -146,12 +210,12 @@ func (c *Client) Quote(ctx context.Context, params QuoteParams) (*QuoteResponse,
 
 // Status fetches transaction status from the provider API.
 func (c *Client) Status(ctx context.Context, txID string) (*StatusResponse, error) {
-	u, err := url.Parse(c.baseURL + "/v2/bridge-status")
+	u, err := url.Parse(c.baseURL + "/api/v1/bungee/status")
 	if err != nil {
 		return nil, err
 	}
 	q := u.Query()
-	q.Set("transactionHash", txID)
+	q.Set("txHash", txID)
 	u.RawQuery = q.Encode()
 
 	hReq, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)

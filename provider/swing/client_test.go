@@ -132,6 +132,146 @@ func TestClient_Quote_RequestParams(t *testing.T) {
 	require.Equal(t, "my-project-123", receivedHeader)
 }
 
+func TestClient_Quote_JSONDeserialization(t *testing.T) {
+	rawJSON := []byte(`{
+		"routes": [
+			{
+				"route": [
+					{
+						"bridge": "stargate",
+						"bridgeTokenAddress": "0x1234",
+						"steps": ["approve", "send"],
+						"name": "USDC",
+						"part": 100
+					}
+				],
+				"quote": {
+					"integration": "stargate",
+					"type": "bridge",
+					"amount": "995000",
+					"decimals": 6,
+					"bridgeFee": "20867118",
+					"bridgeFeeInNativeToken": "0.005",
+					"amountUSD": "995.00",
+					"bridgeFeeUSD": "3.50",
+					"bridgeFeeInNativeTokenUSD": "2.10",
+					"fees": [
+						{
+							"type": "bridge",
+							"amount": "20867118",
+							"amountUSD": "3.50",
+							"tokenSymbol": "USDC",
+							"tokenAddress": "0xA",
+							"chainSlug": "ethereum",
+							"decimals": 6,
+							"deductedFromSourceToken": true
+						}
+					]
+				},
+				"duration": 180,
+				"gas": "3500000000000000",
+				"gasUSD": "12.50"
+			}
+		],
+		"fromToken": {"symbol": "USDC", "address": "0xA", "decimals": 6, "chainId": 1},
+		"fromChain": {"chainId": 1, "slug": "ethereum", "protocolType": "evm"},
+		"toToken": {"symbol": "USDT", "address": "0xB", "decimals": 6, "chainId": 8453},
+		"toChain": {"chainId": 8453, "slug": "base", "protocolType": "evm"}
+	}`)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(rawJSON)
+	}))
+	defer server.Close()
+
+	c := NewClient("test-project")
+	c.baseURL = server.URL
+
+	resp, err := c.Quote(context.Background(), QuoteParams{
+		FromChain:  "ethereum",
+		ToChain:    "base",
+		FromToken:  "0xA",
+		ToToken:    "0xB",
+		FromAmount: "1000000",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+
+	// Verify routes
+	require.Len(t, resp.Routes, 1)
+	ri := resp.Routes[0]
+
+	// Verify route steps
+	require.Len(t, ri.Route, 1)
+	require.Equal(t, "stargate", ri.Route[0].Bridge)
+	require.Equal(t, "0x1234", ri.Route[0].BridgeTokenAddress)
+	require.Equal(t, []string{"approve", "send"}, ri.Route[0].Steps)
+	require.Equal(t, "USDC", ri.Route[0].Name)
+	require.Equal(t, 100, ri.Route[0].Part)
+
+	// Verify quote details
+	require.Equal(t, "stargate", ri.Quote.Integration)
+	require.Equal(t, "bridge", ri.Quote.Type)
+	require.Equal(t, "995000", ri.Quote.Amount)
+	require.Equal(t, 6, ri.Quote.Decimals)
+	require.Equal(t, "20867118", ri.Quote.BridgeFee)
+	require.Equal(t, "995.00", ri.Quote.AmountUSD)
+
+	// Verify fees
+	require.Len(t, ri.Quote.Fees, 1)
+	require.Equal(t, "bridge", ri.Quote.Fees[0].Type)
+	require.Equal(t, "20867118", ri.Quote.Fees[0].Amount)
+	require.Equal(t, "3.50", ri.Quote.Fees[0].AmountUSD)
+	require.Equal(t, "USDC", ri.Quote.Fees[0].TokenSymbol)
+	require.Equal(t, true, ri.Quote.Fees[0].DeductedFromSourceToken)
+
+	// Verify duration/gas
+	require.Equal(t, 180, ri.Duration)
+	require.Equal(t, "3500000000000000", ri.Gas)
+	require.Equal(t, "12.50", ri.GasUSD)
+
+	// Verify top-level token/chain metadata
+	require.Equal(t, "USDC", resp.FromToken.Symbol)
+	require.Equal(t, "0xA", resp.FromToken.Address)
+	require.Equal(t, 1, resp.FromToken.ChainID)
+	require.Equal(t, "ethereum", resp.FromChain.Slug)
+	require.Equal(t, "USDT", resp.ToToken.Symbol)
+	require.Equal(t, 8453, resp.ToToken.ChainID)
+	require.Equal(t, "base", resp.ToChain.Slug)
+}
+
+func TestClient_Status_JSONDeserialization(t *testing.T) {
+	rawJSON := []byte(`{
+		"status": "completed",
+		"fromChainTxHash": "0xSrcHash",
+		"toChainTxHash": "0xDstHash",
+		"txId": "swing-tx-789",
+		"reason": ""
+	}`)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(rawJSON)
+	}))
+	defer server.Close()
+
+	c := NewClient("test-key")
+	c.baseURL = server.URL
+
+	resp, err := c.Status(context.Background(), "swing-tx-789")
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+
+	require.Equal(t, "completed", resp.Status)
+	require.Equal(t, "0xSrcHash", resp.FromChainTxHash)
+	require.Equal(t, "0xDstHash", resp.ToChainTxHash)
+	require.Equal(t, "swing-tx-789", resp.TxID)
+	require.Equal(t, "", resp.Reason)
+}
+
 func TestClient_Status_HTTPError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)

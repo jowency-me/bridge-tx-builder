@@ -24,17 +24,17 @@ type Provider struct {
 }
 
 var chainCodes = map[domain.ChainID]string{
-	domain.ChainArbitrum:  "ARB",
-	domain.ChainAvalanche: "AVA",
-	domain.ChainBSC:       "BSC",
-	domain.ChainBase:      "BAS",
-	domain.ChainBitcoin:   "BTC",
-	domain.ChainCosmos:    "OSM",
-	domain.ChainEthereum:  "ETH",
-	domain.ChainOptimism:  "OPT",
-	domain.ChainPolygon:   "POL",
-	domain.ChainSolana:    "SOL",
-	domain.ChainTron:      "TRX",
+	domain.ChainArbitrum:  "42161",
+	domain.ChainAvalanche: "43114",
+	domain.ChainBSC:       "56",
+	domain.ChainBase:      "8453",
+	domain.ChainBitcoin:   "btc",
+	domain.ChainCosmos:    "cosmos",
+	domain.ChainEthereum:  "1",
+	domain.ChainOptimism:  "10",
+	domain.ChainPolygon:   "137",
+	domain.ChainSolana:    "sol",
+	domain.ChainTron:      "tron",
 }
 
 // Option configures a Provider.
@@ -56,6 +56,17 @@ func WithHTTPClient(hc *http.Client) Option {
 			c.client = hc
 		}
 	}
+}
+
+func parseHexOrDecimal(s string) (decimal.Decimal, error) {
+	if strings.HasPrefix(s, "0x") || strings.HasPrefix(s, "0X") {
+		v, err := strconv.ParseInt(s, 0, 64)
+		if err != nil {
+			return decimal.Zero, err
+		}
+		return decimal.NewFromInt(v), nil
+	}
+	return decimal.NewFromString(s)
 }
 
 // NewProvider configures the provider.
@@ -156,11 +167,20 @@ func mapQuote(qr *QuoteResponse, reqs ...domain.QuoteRequest) (*domain.Quote, er
 		gas = g
 	}
 	if gas == 0 && qr.TransactionRequest.GasLimit != "" {
-		g, err := strconv.ParseUint(qr.TransactionRequest.GasLimit, 10, 64)
-		if err != nil {
-			return nil, fmt.Errorf("%s: parse gas limit: %w", Name, err)
+		gLimitStr := qr.TransactionRequest.GasLimit
+		if strings.HasPrefix(gLimitStr, "0x") || strings.HasPrefix(gLimitStr, "0X") {
+			g, err := strconv.ParseInt(gLimitStr, 0, 64)
+			if err != nil {
+				return nil, fmt.Errorf("%s: parse gas limit: %w", Name, err)
+			}
+			gas = uint64(g)
+		} else {
+			g, err := strconv.ParseUint(gLimitStr, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("%s: parse gas limit: %w", Name, err)
+			}
+			gas = g
 		}
-		gas = g
 	}
 
 	var txData []byte
@@ -173,10 +193,10 @@ func mapQuote(qr *QuoteResponse, reqs ...domain.QuoteRequest) (*domain.Quote, er
 	}
 
 	var txValue decimal.Decimal
-	if qr.TransactionRequest.Value != "" && qr.TransactionRequest.Value != "0" {
-		v, err := decimal.NewFromString(qr.TransactionRequest.Value)
-		if err == nil {
-			txValue = v
+	if qr.TransactionRequest.Value != "" && qr.TransactionRequest.Value != "0" && qr.TransactionRequest.Value != "0x0" {
+		txValue, err = parseHexOrDecimal(qr.TransactionRequest.Value)
+		if err != nil {
+			txValue = decimal.Zero
 		}
 	}
 
@@ -193,21 +213,39 @@ func mapQuote(qr *QuoteResponse, reqs ...domain.QuoteRequest) (*domain.Quote, er
 		})
 	}
 
+	var allowanceNeeded *decimal.Decimal
+	if qr.Estimate.ApprovalAddress != "" {
+		allowanceNeeded = &fromAmt
+	}
+
+	var estFee decimal.Decimal
+	for _, fc := range qr.Estimate.FeeCosts {
+		if fc.Amount != "" {
+			amt, err := decimal.NewFromString(fc.Amount)
+			if err == nil {
+				estFee = estFee.Add(amt)
+			}
+		}
+	}
+
 	return &domain.Quote{
-		ID:          qr.ID,
-		FromToken:   mapToken(qr.Action.FromToken, qr.Action.FromChainID),
-		ToToken:     mapToken(qr.Action.ToToken, qr.Action.ToChainID),
-		FromAmount:  fromAmt,
-		ToAmount:    toAmt,
-		MinAmount:   minAmt,
-		Slippage:    req.Slippage,
-		Provider:    string(Name),
-		Route:       route,
-		Deadline:    time.Now().Add(10 * time.Minute),
-		To:          qr.TransactionRequest.To,
-		TxData:      txData,
-		TxValue:     txValue,
-		EstimateGas: gas,
+		ID:              qr.ID,
+		FromToken:       mapToken(qr.Action.FromToken, qr.Action.FromChainID),
+		ToToken:         mapToken(qr.Action.ToToken, qr.Action.ToChainID),
+		FromAmount:      fromAmt,
+		ToAmount:        toAmt,
+		MinAmount:       minAmt,
+		Slippage:        req.Slippage,
+		Provider:        string(Name),
+		Route:           route,
+		Deadline:        time.Now().Add(10 * time.Minute),
+		To:              qr.TransactionRequest.To,
+		TxData:          txData,
+		TxValue:         txValue,
+		EstimateGas:     gas,
+		EstimateFee:     estFee,
+		ApprovalAddress: qr.Estimate.ApprovalAddress,
+		AllowanceNeeded: allowanceNeeded,
 	}, nil
 }
 
@@ -215,8 +253,15 @@ func mapStatus(sr *StatusResponse) *domain.Status {
 	if sr == nil {
 		return &domain.Status{State: "unknown"}
 	}
-	state := sr.Status
+	state := strings.ToLower(sr.Status)
 	if state == "" {
+		state = "unknown"
+	}
+	// Normalize LI.FI-specific states to domain conventions
+	switch state {
+	case "done":
+		state = "completed"
+	case "not_found":
 		state = "unknown"
 	}
 	return &domain.Status{

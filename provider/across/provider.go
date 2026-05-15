@@ -111,6 +111,7 @@ func (p *Provider) Quote(ctx context.Context, req domain.QuoteRequest) (*domain.
 		Depositor:          req.FromAddr,
 		Recipient:          req.ToAddr,
 		TradeType:          defaultTradeType,
+		Slippage:           req.Slippage,
 	}
 
 	qr, err := p.client.Quote(ctx, params)
@@ -138,16 +139,16 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error)
 	}
 
 	var toAmt decimal.Decimal
-	if qr.OutputAmount != "" {
-		parsed, err := decimal.NewFromString(qr.OutputAmount)
+	if qr.ExpectedOutputAmount != "" {
+		parsed, err := decimal.NewFromString(qr.ExpectedOutputAmount)
 		if err == nil {
 			toAmt = parsed
 		}
 	}
-	if toAmt.IsZero() && qr.TotalRelayFee.Total != "" {
-		fee, err := decimal.NewFromString(qr.TotalRelayFee.Total)
-		if err == nil && !fee.IsNegative() {
-			toAmt = fromAmt.Sub(fee)
+	if toAmt.IsZero() && qr.Steps.Bridge.OutputAmount != "" {
+		parsed, err := decimal.NewFromString(qr.Steps.Bridge.OutputAmount)
+		if err == nil {
+			toAmt = parsed
 		}
 	}
 	if toAmt.IsZero() || toAmt.IsNegative() {
@@ -155,27 +156,17 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error)
 	}
 
 	var minAmt decimal.Decimal
-	if qr.RelayFeeFullPct != "" {
-		pct, err := strconv.ParseFloat(qr.RelayFeeFullPct, 64)
-		if err == nil && pct > 0 {
-			minAmt = toAmt.Mul(decimal.NewFromFloat(1 - pct))
+	if qr.MinOutputAmount != "" {
+		parsed, err := decimal.NewFromString(qr.MinOutputAmount)
+		if err == nil && parsed.IsPositive() {
+			minAmt = parsed
 		}
 	}
 	if minAmt.IsZero() || minAmt.IsNegative() {
-		minAmt = toAmt.Mul(decimal.NewFromInt(995)).Div(decimal.NewFromInt(1000))
+		minAmt = toAmt.Mul(decimal.NewFromFloat(1 - req.Slippage))
 	}
 
-	var slippage float64
-	if qr.RelayFeeFullPct != "" {
-		pct, err := strconv.ParseFloat(qr.RelayFeeFullPct, 64)
-		if err != nil {
-			return nil, fmt.Errorf("%s: parse relay fee pct: %w", Name, err)
-		}
-		slippage = pct
-	}
-	if slippage == 0 {
-		slippage = req.Slippage
-	}
+	slippage := req.Slippage
 	if slippage == 0 {
 		slippage = 0.005
 	}
@@ -206,16 +197,20 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error)
 	}
 
 	target := qr.SwapTx.To
-	if target == "" {
-		target = qr.SpokePoolAddress
-	}
 
-	idPart := qr.QuoteBlock
+	idPart := qr.ID
 	if idPart == "" {
-		idPart = qr.OutputAmount
+		idPart = qr.ExpectedOutputAmount
 	}
 
-	return &domain.Quote{
+	var deadline time.Time
+	if qr.QuoteExpiryTimestamp > 0 {
+		deadline = time.Unix(qr.QuoteExpiryTimestamp, 0)
+	} else {
+		deadline = time.Now().Add(10 * time.Minute)
+	}
+
+	quote := &domain.Quote{
 		ID:         idPart + "-" + req.FromToken.Address,
 		FromToken:  req.FromToken,
 		ToToken:    req.ToToken,
@@ -231,10 +226,27 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error)
 				Action:   "bridge",
 			},
 		},
-		Deadline:    time.Now().Add(10 * time.Minute),
+		Deadline:    deadline,
 		To:          target,
 		TxData:      txData,
 		TxValue:     txValue,
 		EstimateGas: gas,
-	}, nil
+	}
+
+	// In the new API, approval info comes from Checks.Allowance
+	if qr.Checks.Allowance.Spender != "" {
+		quote.ApprovalAddress = qr.Checks.Allowance.Spender
+		allowanceStr := qr.Checks.Allowance.Expected
+		if allowanceStr == "" {
+			allowanceStr = qr.Checks.Allowance.Actual
+		}
+		if allowanceStr != "" {
+			a, err := decimal.NewFromString(allowanceStr)
+			if err == nil {
+				quote.AllowanceNeeded = &a
+			}
+		}
+	}
+
+	return quote, nil
 }

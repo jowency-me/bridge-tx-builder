@@ -1,4 +1,10 @@
 // Package across provides a quote adapter for the Across Protocol cross-chain bridge.
+//
+// API Reference:
+//
+//	Quote: https://docs.across.to/developers/across-api
+//	Status: https://docs.across.to/developers/across-api
+//	API version: v2 (verified 2026-05-15)
 package across
 
 import (
@@ -7,6 +13,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 )
 
@@ -41,38 +48,89 @@ type QuoteParams struct {
 	Depositor          string
 	Recipient          string
 	TradeType          string
-}
-
-// FeeBreakdown holds a fee with percentage and total.
-type FeeBreakdown struct {
-	Pct   string `json:"pct"`
-	Total string `json:"total"`
+	Slippage           float64
 }
 
 // TxInfo contains provider transaction metadata.
 type TxInfo struct {
-	To    string `json:"to"`
-	Data  string `json:"data"`
-	Value string `json:"value"`
-	Gas   string `json:"gas"`
+	Ecosystem         string `json:"ecosystem"`
+	SimulationSuccess bool   `json:"simulationSuccess"`
+	ChainID           int    `json:"chainId"`
+	To                string `json:"to"`
+	Data              string `json:"data"`
+	Value             string `json:"value"`
+	Gas               string `json:"gas"`
 }
 
-// QuoteResponse is the raw JSON response from Across swap approval endpoint.
+// ApprovalTxn contains an ERC-20 approval transaction.
+type ApprovalTxn struct {
+	ChainID int    `json:"chainId"`
+	To      string `json:"to"`
+	Data    string `json:"data"`
+}
+
+// AllowanceCheck contains token allowance information from the API.
+type AllowanceCheck struct {
+	Token    string `json:"token"`
+	Spender  string `json:"spender"`
+	Actual   string `json:"actual"`
+	Expected string `json:"expected"`
+}
+
+// BalanceCheck contains token balance information from the API.
+type BalanceCheck struct {
+	Token    string `json:"token"`
+	Actual   string `json:"actual"`
+	Expected string `json:"expected"`
+}
+
+// Checks contains pre-flight validation data for a swap.
+type Checks struct {
+	Allowance AllowanceCheck `json:"allowance"`
+	Balance   BalanceCheck   `json:"balance"`
+}
+
+// ApprovalData contains token approval requirements for a swap.
+// In the new API this is populated from Checks.Allowance.
+type ApprovalData struct {
+	Allowance    string `json:"allowance"`
+	Spender      string `json:"spender"`
+	TokenAddress string `json:"tokenAddress"`
+}
+
+// BridgeStep contains the bridge execution step data.
+type BridgeStep struct {
+	InputAmount  string `json:"inputAmount"`
+	OutputAmount string `json:"outputAmount"`
+	Provider     string `json:"provider"`
+}
+
+// Steps contains the execution steps for a swap.
+type Steps struct {
+	Bridge BridgeStep `json:"bridge"`
+}
+
+// QuoteResponse is the raw JSON response from the Across /api/swap/approval endpoint.
+//
+// Verified (2026-05-15): The API at app.across.to/api/swap/approval returns a
+// redesigned response. The primary fields are: CrossSwapType, AmountType, Checks,
+// ApprovalTxns, Steps, InputAmount, ExpectedOutputAmount, MinOutputAmount,
+// ExpectedFillTime, SwapTx (with ecosystem/simulationSuccess/chainId/to/data/gas),
+// QuoteExpiryTimestamp, and Id.
 type QuoteResponse struct {
-	TotalRelayFee       FeeBreakdown `json:"totalRelayFee"`
-	RelayerFee          FeeBreakdown `json:"relayerFee"`
-	LpFee               FeeBreakdown `json:"lpFee"`
-	Timestamp           string       `json:"timestamp"`
-	IsAmountTooLow      bool         `json:"isAmountTooLow"`
-	QuoteBlock          string       `json:"quoteBlock"`
-	SpokePoolAddress    string       `json:"spokePoolAddress"`
-	ExpectedFillTimeSec int          `json:"expectedFillTimeSec"`
-	CapitalCostFeePct   string       `json:"capitalCostFeePct"`
-	RelayFeeFullPct     string       `json:"relayFeeFullPct"`
-	InputAmount         string       `json:"inputAmount"`
-	OutputAmount        string       `json:"outputAmount"`
-	SwapTx              TxInfo       `json:"swapTx"`
-	ApprovalTxns        []TxInfo     `json:"approvalTxns"`
+	CrossSwapType        string        `json:"crossSwapType"`
+	AmountType           string        `json:"amountType"`
+	Checks               Checks        `json:"checks"`
+	ApprovalTxns         []ApprovalTxn `json:"approvalTxns"`
+	Steps                Steps         `json:"steps"`
+	InputAmount          string        `json:"inputAmount"`
+	MaxInputAmount       string        `json:"maxInputAmount"`
+	ExpectedOutputAmount string        `json:"expectedOutputAmount"`
+	MinOutputAmount      string        `json:"minOutputAmount"`
+	ExpectedFillTime     int           `json:"expectedFillTime"`
+	SwapTx               TxInfo        `json:"swapTx"`
+	QuoteExpiryTimestamp int64         `json:"quoteExpiryTimestamp"`
+	ID                   string        `json:"id"`
 }
 
 // StatusResponse is not supported by Across.
@@ -99,6 +157,9 @@ func (c *Client) Quote(ctx context.Context, params QuoteParams) (*QuoteResponse,
 		tradeType = defaultTradeType
 	}
 	q.Set("tradeType", tradeType)
+	if params.Slippage > 0 {
+		q.Set("slippage", strconv.FormatFloat(params.Slippage, 'f', 4, 64))
+	}
 	if c.integratorID != "" {
 		q.Set("integratorId", c.integratorID)
 	}

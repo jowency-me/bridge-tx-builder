@@ -13,13 +13,15 @@ import (
 )
 
 type mockClient struct {
-	quoteResp  *QuoteResponse
-	quoteErr   error
-	statusResp *StatusResponse
-	statusErr  error
+	quoteResp       *QuoteResponse
+	quoteErr        error
+	lastQuoteParams QuoteParams
+	statusResp      *StatusResponse
+	statusErr       error
 }
 
 func (m *mockClient) Quote(ctx context.Context, params QuoteParams) (*QuoteResponse, error) {
+	m.lastQuoteParams = params
 	return m.quoteResp, m.quoteErr
 }
 
@@ -75,6 +77,11 @@ func TestProvider_Quote_Success(t *testing.T) {
 	assert.Equal(t, int64(999_000), quote.ToAmount.IntPart())
 	assert.Equal(t, "swing", quote.Provider)
 	assert.Equal(t, 1, len(quote.Route))
+
+	// Verify provider passes TokenSymbol and ToTokenSymbol to client.
+	// Required by Swing API (verified against docs.swing.xyz v3 reference).
+	assert.Equal(t, "USDC", mock.lastQuoteParams.TokenSymbol)
+	assert.Equal(t, "USDT", mock.lastQuoteParams.ToTokenSymbol)
 }
 
 func TestProvider_Quote_HTTPError(t *testing.T) {

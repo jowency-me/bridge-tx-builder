@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -23,14 +22,14 @@ type Provider struct {
 	client client
 }
 
+// Hop Protocol supports Ethereum L2 rollups only.
+// See https://hop.exchange/ for the current list of supported chains.
 var chainCodes = map[domain.ChainID]string{
-	domain.ChainArbitrum:  "arbitrum",
-	domain.ChainAvalanche: "avalanche",
-	domain.ChainBSC:       "bnb",
-	domain.ChainBase:      "base",
-	domain.ChainEthereum:  "ethereum",
-	domain.ChainOptimism:  "optimism",
-	domain.ChainPolygon:   "polygon",
+	domain.ChainArbitrum: "arbitrum",
+	domain.ChainBase:     "base",
+	domain.ChainEthereum: "ethereum",
+	domain.ChainOptimism: "optimism",
+	domain.ChainPolygon:  "polygon",
 }
 
 // Option configures a Provider.
@@ -89,6 +88,7 @@ func (p *Provider) Quote(ctx context.Context, req domain.QuoteRequest) (*domain.
 		ToChain:   toCode,
 		Token:     req.FromToken.Address,
 		Amount:    req.Amount.String(),
+		Slippage:  req.Slippage,
 	}
 
 	qr, err := p.client.Quote(ctx, params)
@@ -107,32 +107,43 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error)
 	if qr == nil {
 		return nil, fmt.Errorf("%s: empty quote response", Name)
 	}
-	toAmt, err := decimal.NewFromString(qr.AmountOut)
+	toAmt, err := decimal.NewFromString(qr.EstimatedReceived)
 	if err != nil {
 		toAmt = decimal.Zero
 	}
 
 	var estFee decimal.Decimal
-	if qr.Fee != "" {
-		f, err := decimal.NewFromString(qr.Fee)
+	if qr.BonderFee != "" {
+		f, err := decimal.NewFromString(qr.BonderFee)
 		if err == nil {
 			estFee = f
 		}
 	}
 
 	var slippage float64
-	if qr.Slippage != "" {
-		var err error
-		slippage, err = strconv.ParseFloat(qr.Slippage, 64)
-		if err != nil {
-			return nil, fmt.Errorf("%s: parse slippage: %w", Name, err)
-		}
+	if qr.Slippage > 0 {
+		slippage = qr.Slippage / 100.0
 	}
 	if slippage == 0 {
 		slippage = req.Slippage
 	}
 
-	minAmt := toAmt.Mul(decimal.NewFromInt(995)).Div(decimal.NewFromInt(1000))
+	var minAmt decimal.Decimal
+	if qr.AmountOutMin != "" {
+		if m, err := decimal.NewFromString(qr.AmountOutMin); err == nil {
+			minAmt = m
+		}
+	}
+	if minAmt.IsZero() {
+		minAmt = toAmt.Mul(decimal.NewFromFloat(1 - req.Slippage))
+	}
+
+	var deadline time.Time
+	if qr.Deadline > 0 {
+		deadline = time.Unix(qr.Deadline, 0)
+	} else {
+		deadline = time.Now().Add(10 * time.Minute)
+	}
 
 	return &domain.Quote{
 		ID:         qr.Bridge + "-" + req.FromToken.Address,
@@ -150,7 +161,7 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error)
 				Action:   "bridge",
 			},
 		},
-		Deadline:    time.Now().Add(10 * time.Minute),
+		Deadline:    deadline,
 		EstimateFee: estFee,
 	}, nil
 }

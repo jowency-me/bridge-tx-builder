@@ -1,4 +1,10 @@
 // Package debridge provides a quote adapter for the deBridge DLN cross-chain protocol.
+//
+// API Reference:
+//
+//	Quote: https://docs.debridge.finance/dln-api/api-reference
+//	Status: https://docs.debridge.finance/dln-api/api-reference
+//	API version: v1.0 (verified 2026-05-15)
 package debridge
 
 import (
@@ -38,30 +44,52 @@ type QuoteParams struct {
 	DstChainOrderAuthorityAddress string
 	DstChainTokenOutRecipient     string
 	DstChainTokenOutAmount        string
-	Slippage                      string
 }
 
 // QuoteResponse contains raw debridge quote response data.
 type QuoteResponse struct {
-	OrderID            string    `json:"orderId"`
-	EstimateToAmount   string    `json:"estimateToAmount"`
-	EstimateFromAmount string    `json:"estimateFromAmount"`
-	Tx                 TxInfo    `json:"tx"`
-	TokenIn            TokenInfo `json:"tokenIn"`
-	TokenOut           TokenInfo `json:"tokenOut"`
+	OrderID    string     `json:"orderId"`
+	Estimation Estimation `json:"estimation"`
+	Tx         TxInfo     `json:"tx"`
+}
+
+// Estimation contains the quoted token info.
+type Estimation struct {
+	SrcChainTokenIn  SrcChainTokenInfo `json:"srcChainTokenIn"`
+	DstChainTokenOut DstChainTokenInfo `json:"dstChainTokenOut"`
+}
+
+// SrcChainTokenInfo contains source chain token metadata including amount.
+type SrcChainTokenInfo struct {
+	Symbol   string `json:"symbol"`
+	Name     string `json:"name"`
+	Address  string `json:"address"`
+	Decimals int    `json:"decimals"`
+	ChainID  int    `json:"chainId"`
+	Amount   string `json:"amount"`
+}
+
+// DstChainTokenInfo contains destination chain token metadata including amount.
+type DstChainTokenInfo struct {
+	Symbol   string `json:"symbol"`
+	Name     string `json:"name"`
+	Address  string `json:"address"`
+	Decimals int    `json:"decimals"`
+	ChainID  int    `json:"chainId"`
+	Amount   string `json:"amount"`
 }
 
 // TxInfo contains provider transaction metadata.
 type TxInfo struct {
-	To       string `json:"to"`
-	Data     string `json:"data"`
-	Value    string `json:"value"`
-	GasLimit string `json:"gasLimit"`
+	To    string `json:"to"`
+	Data  string `json:"data"`
+	Value string `json:"value"`
 }
 
-// TokenInfo contains provider token metadata.
+// TokenInfo contains provider token metadata (used for mapping to domain).
 type TokenInfo struct {
 	Symbol   string `json:"symbol"`
+	Name     string `json:"name"`
 	Address  string `json:"address"`
 	Decimals int    `json:"decimals"`
 	ChainID  int    `json:"chainId"`
@@ -89,7 +117,6 @@ func (c *Client) Quote(ctx context.Context, params QuoteParams) (*QuoteResponse,
 	q.Set("dstChainOrderAuthorityAddress", params.DstChainOrderAuthorityAddress)
 	q.Set("dstChainTokenOutRecipient", params.DstChainTokenOutRecipient)
 	q.Set("dstChainTokenOutAmount", params.DstChainTokenOutAmount)
-	q.Set("slippage", params.Slippage)
 	u.RawQuery = q.Encode()
 
 	hReq, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
@@ -119,13 +146,10 @@ func (c *Client) Quote(ctx context.Context, params QuoteParams) (*QuoteResponse,
 
 // Status fetches transaction status from the provider API.
 func (c *Client) Status(ctx context.Context, txID string) (*StatusResponse, error) {
-	u, err := url.Parse(c.baseURL + "/v1.0/dln/order/status")
+	u, err := url.Parse(c.baseURL + "/v1.0/dln/order/" + txID + "/status")
 	if err != nil {
 		return nil, err
 	}
-	q := u.Query()
-	q.Set("id", txID)
-	u.RawQuery = q.Encode()
 
 	hReq, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {

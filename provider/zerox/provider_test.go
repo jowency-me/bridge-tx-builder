@@ -32,21 +32,20 @@ func (m *mockClient) Status(ctx context.Context, txID string) (*StatusResponse, 
 func TestProvider_Quote_Success(t *testing.T) {
 	mock := &mockClient{
 		quoteResp: &QuoteResponse{
-			Price:            "0.999",
-			GuaranteedPrice:  "0.998",
-			To:               "0xRouter",
-			Data:             "0xdeadbeef",
-			Value:            "0",
-			Gas:              "200000",
-			BuyAmount:        "999000",
-			SellAmount:       "1000000",
-			BuyTokenAddress:  "0xB",
-			SellTokenAddress: "0xA",
-			Sources: []SourceInfo{
-				{Name: "Uniswap", Proportion: "0.5"},
-				{Name: "SushiSwap", Proportion: "0.5"},
+			BuyAmount:  "999000",
+			SellAmount: "1000000",
+			Route: RouteData{
+				Fills: []RouteFill{
+					{Source: "Uniswap", Proportion: "0.5"},
+					{Source: "SushiSwap", Proportion: "0.5"},
+				},
 			},
-			Fee: FeeInfo{FeeAmount: "500"},
+			Fees: FeeData{ZeroExFee: &ZeroExFee{Amount: "500", Token: "0xB", Type: "volume"}},
+			Transaction: TxData{
+				To:   "0xRouter",
+				Data: "0xdeadbeef",
+				Gas:  "200000",
+			},
 		},
 	}
 
@@ -66,6 +65,7 @@ func TestProvider_Quote_Success(t *testing.T) {
 	quote, err := p.Quote(ctx, req)
 	require.NoError(t, err)
 	assert.NotEmpty(t, quote.ID)
+	assert.Equal(t, int64(1_000_000), quote.FromAmount.IntPart())
 	assert.Equal(t, int64(999_000), quote.ToAmount.IntPart())
 	assert.Equal(t, "0x", quote.Provider)
 	assert.Equal(t, 2, len(quote.Route))
@@ -93,12 +93,11 @@ func TestProvider_Quote_HTTPError(t *testing.T) {
 func TestProvider_Quote_InvalidGas(t *testing.T) {
 	mock := &mockClient{
 		quoteResp: &QuoteResponse{
-			Gas: "not-a-number",
+			BuyAmount:  "999000",
+			SellAmount: "1000000",
 			Transaction: TxData{
 				Gas: "also-bad",
 			},
-			BuyAmount:  "999000",
-			SellAmount: "1000000",
 		},
 	}
 	p := &Provider{client: mock}
@@ -122,7 +121,9 @@ func TestProvider_Quote_SlippageMultipliedBy100(t *testing.T) {
 		quoteResp: &QuoteResponse{
 			BuyAmount:  "999000",
 			SellAmount: "1000000",
-			Gas:        "150000",
+			Transaction: TxData{
+				Gas: "150000",
+			},
 		},
 	}
 	p := &Provider{client: mock}
@@ -131,7 +132,7 @@ func TestProvider_Quote_SlippageMultipliedBy100(t *testing.T) {
 		FromToken: domain.Token{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: domain.ChainEthereum},
 		ToToken:   domain.Token{Symbol: "USDT", Address: "0xB", Decimals: 6, ChainID: domain.ChainEthereum},
 		Amount:    decimal.NewFromInt(1_000_000),
-		Slippage:  0.005, // 0.5% → 50 bps
+		Slippage:  0.005,
 		FromAddr:  "0xFrom",
 		ToAddr:    "0xTo",
 	}
@@ -143,15 +144,14 @@ func TestProvider_Quote_SlippageMultipliedBy100(t *testing.T) {
 }
 
 func TestProvider_Status_Success(t *testing.T) {
-	mock := &mockClient{statusResp: &StatusResponse{Status: "reachable"}}
-	p := &Provider{client: mock}
+	// 0x does not provide a transaction status API.
+	// Status() returns an error indicating status tracking is not supported.
+	p := &Provider{client: &mockClient{}}
 	ctx := context.Background()
 
-	status, err := p.Status(ctx, "0xTx")
-	require.NoError(t, err)
-	require.NotNil(t, status)
-	assert.Equal(t, "reachable", status.State)
-	assert.Equal(t, "0xTx", status.TxID)
+	_, err := p.Status(ctx, "0xTx")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "status tracking not supported")
 }
 
 func TestProvider_Status_Error(t *testing.T) {
@@ -189,8 +189,10 @@ func TestProvider_Quote_InvalidHexData(t *testing.T) {
 		quoteResp: &QuoteResponse{
 			BuyAmount:  "999000",
 			SellAmount: "1000000",
-			Data:       "0xzz",
-			Gas:        "150000",
+			Transaction: TxData{
+				Data: "0xzz",
+				Gas:  "150000",
+			},
 		},
 	}
 	p := &Provider{client: mock}
@@ -272,58 +274,57 @@ func TestMapQuote_Nil(t *testing.T) {
 	assert.Contains(t, err.Error(), "empty quote response")
 }
 
-func TestMapQuote_GuaranteedPrice(t *testing.T) {
-	qr := &QuoteResponse{
-		SellAmount:      "1000000",
-		BuyAmount:       "999000",
-		GuaranteedPrice: "0.998",
-		To:              "0xRouter",
-		Data:            "0xdeadbeef",
-		Gas:             "200000",
-	}
-	req := domain.QuoteRequest{
-		FromToken: domain.Token{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: domain.ChainEthereum},
-		ToToken:   domain.Token{Symbol: "USDT", Address: "0xB", Decimals: 6, ChainID: domain.ChainEthereum},
-		Amount:    decimal.NewFromInt(1_000_000),
-		Slippage:  0.005,
-	}
-	quote, err := mapQuote(qr, req)
-	require.NoError(t, err)
-	// minAmount = fromAmt * guaranteedPrice = 1000000 * 0.998 = 998000
-	assert.Equal(t, int64(998_000), quote.MinAmount.IntPart())
-}
-
-func TestMapQuote_GuaranteedPriceZeroFallback(t *testing.T) {
-	qr := &QuoteResponse{
-		SellAmount:      "1000000",
-		BuyAmount:       "999000",
-		GuaranteedPrice: "0",
-		To:              "0xRouter",
-		Data:            "0xdeadbeef",
-		Gas:             "200000",
-	}
-	req := domain.QuoteRequest{
-		FromToken: domain.Token{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: domain.ChainEthereum},
-		ToToken:   domain.Token{Symbol: "USDT", Address: "0xB", Decimals: 6, ChainID: domain.ChainEthereum},
-		Amount:    decimal.NewFromInt(1_000_000),
-		Slippage:  0.005,
-	}
-	quote, err := mapQuote(qr, req)
-	require.NoError(t, err)
-	// fallback to 0.995 * toAmount = 994005
-	assert.Equal(t, int64(994_005), quote.MinAmount.IntPart())
-}
-
-func TestMapQuote_TransactionFallback(t *testing.T) {
+func TestMapQuote_MinAmountFallback(t *testing.T) {
 	qr := &QuoteResponse{
 		SellAmount: "1000000",
 		BuyAmount:  "999000",
-		To:         "0xOldRouter",
-		Data:       "0xdeadbeef",
-		Value:      "0",
-		Gas:        "100000",
 		Transaction: TxData{
-			To:       "0xNewRouter",
+			To:   "0xRouter",
+			Data: "0xdeadbeef",
+			Gas:  "200000",
+		},
+	}
+	req := domain.QuoteRequest{
+		FromToken: domain.Token{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: domain.ChainEthereum},
+		ToToken:   domain.Token{Symbol: "USDT", Address: "0xB", Decimals: 6, ChainID: domain.ChainEthereum},
+		Amount:    decimal.NewFromInt(1_000_000),
+		Slippage:  0.005,
+	}
+	quote, err := mapQuote(qr, req)
+	require.NoError(t, err)
+	// When minBuyAmount is empty, fallback to 0.995 * buyAmount
+	assert.Equal(t, int64(994_005), quote.MinAmount.IntPart())
+}
+
+func TestMapQuote_MinBuyAmount(t *testing.T) {
+	// When minBuyAmount is provided by the API, use it directly
+	qr := &QuoteResponse{
+		SellAmount:   "1000000000000000000",
+		BuyAmount:    "995000000",
+		MinBuyAmount: "990025000",
+		Transaction: TxData{
+			To:   "0xRouter",
+			Data: "0xdeadbeef",
+			Gas:  "200000",
+		},
+	}
+	req := domain.QuoteRequest{
+		FromToken: domain.Token{Symbol: "ETH", Address: "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE", Decimals: 18, ChainID: domain.ChainEthereum},
+		ToToken:   domain.Token{Symbol: "USDC", Address: "0xB", Decimals: 6, ChainID: domain.ChainEthereum},
+		Amount:    decimal.NewFromInt(1_000_000_000_000_000_000),
+		Slippage:  0.005,
+	}
+	quote, err := mapQuote(qr, req)
+	require.NoError(t, err)
+	assert.Equal(t, int64(990_025_000), quote.MinAmount.IntPart())
+}
+
+func TestMapQuote_TransactionData(t *testing.T) {
+	qr := &QuoteResponse{
+		SellAmount: "1000000",
+		BuyAmount:  "999000",
+		Transaction: TxData{
+			To:       "0xRouter",
 			Data:     "0xcafebabe",
 			Value:    "1000",
 			Gas:      "200000",
@@ -338,7 +339,7 @@ func TestMapQuote_TransactionFallback(t *testing.T) {
 	}
 	quote, err := mapQuote(qr, req)
 	require.NoError(t, err)
-	assert.Equal(t, "0xNewRouter", quote.To)
+	assert.Equal(t, "0xRouter", quote.To)
 	assert.Equal(t, []byte{0xca, 0xfe, 0xba, 0xbe}, quote.TxData)
 	assert.True(t, quote.TxValue.Equal(decimal.NewFromInt(1000)))
 	assert.Equal(t, uint64(200_000), quote.EstimateGas)
@@ -348,9 +349,11 @@ func TestMapQuote_InvalidSellAmount(t *testing.T) {
 	qr := &QuoteResponse{
 		SellAmount: "invalid",
 		BuyAmount:  "999000",
-		To:         "0xRouter",
-		Data:       "0xdeadbeef",
-		Gas:        "200000",
+		Transaction: TxData{
+			To:   "0xRouter",
+			Data: "0xdeadbeef",
+			Gas:  "200000",
+		},
 	}
 	req := domain.QuoteRequest{
 		FromToken: domain.Token{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: domain.ChainEthereum},
@@ -360,7 +363,6 @@ func TestMapQuote_InvalidSellAmount(t *testing.T) {
 	}
 	quote, err := mapQuote(qr, req)
 	require.NoError(t, err)
-	// fallback to req.Amount
 	assert.Equal(t, int64(1_000_000), quote.FromAmount.IntPart())
 }
 
@@ -368,9 +370,11 @@ func TestMapQuote_InvalidBuyAmount(t *testing.T) {
 	qr := &QuoteResponse{
 		SellAmount: "1000000",
 		BuyAmount:  "invalid",
-		To:         "0xRouter",
-		Data:       "0xdeadbeef",
-		Gas:        "200000",
+		Transaction: TxData{
+			To:   "0xRouter",
+			Data: "0xdeadbeef",
+			Gas:  "200000",
+		},
 	}
 	req := domain.QuoteRequest{
 		FromToken: domain.Token{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: domain.ChainEthereum},
@@ -383,35 +387,16 @@ func TestMapQuote_InvalidBuyAmount(t *testing.T) {
 	assert.True(t, quote.ToAmount.IsZero())
 }
 
-func TestMapQuote_InvalidGuaranteedPrice(t *testing.T) {
-	qr := &QuoteResponse{
-		SellAmount:      "1000000",
-		BuyAmount:       "999000",
-		GuaranteedPrice: "bad",
-		To:              "0xRouter",
-		Data:            "0xdeadbeef",
-		Gas:             "200000",
-	}
-	req := domain.QuoteRequest{
-		FromToken: domain.Token{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: domain.ChainEthereum},
-		ToToken:   domain.Token{Symbol: "USDT", Address: "0xB", Decimals: 6, ChainID: domain.ChainEthereum},
-		Amount:    decimal.NewFromInt(1_000_000),
-		Slippage:  0.005,
-	}
-	quote, err := mapQuote(qr, req)
-	require.NoError(t, err)
-	// fallback to 0.995 * toAmount
-	assert.Equal(t, int64(994_005), quote.MinAmount.IntPart())
-}
-
 func TestMapQuote_InvalidFeeAmount(t *testing.T) {
 	qr := &QuoteResponse{
 		SellAmount: "1000000",
 		BuyAmount:  "999000",
-		To:         "0xRouter",
-		Data:       "0xdeadbeef",
-		Gas:        "200000",
-		Fee:        FeeInfo{FeeAmount: "bad-fee"},
+		Transaction: TxData{
+			To:   "0xRouter",
+			Data: "0xdeadbeef",
+			Gas:  "200000",
+		},
+		Fees: FeeData{ZeroExFee: &ZeroExFee{Amount: "bad-fee", Token: "0xB", Type: "volume"}},
 	}
 	req := domain.QuoteRequest{
 		FromToken: domain.Token{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: domain.ChainEthereum},
@@ -424,14 +409,38 @@ func TestMapQuote_InvalidFeeAmount(t *testing.T) {
 	assert.True(t, quote.EstimateFee.IsZero())
 }
 
-func TestMapQuote_EmptySourcesFallback(t *testing.T) {
+func TestMapQuote_NilZeroExFee(t *testing.T) {
 	qr := &QuoteResponse{
 		SellAmount: "1000000",
 		BuyAmount:  "999000",
-		To:         "0xRouter",
-		Data:       "0xdeadbeef",
-		Gas:        "200000",
-		Sources:    []SourceInfo{},
+		Transaction: TxData{
+			To:   "0xRouter",
+			Data: "0xdeadbeef",
+			Gas:  "200000",
+		},
+		Fees: FeeData{ZeroExFee: nil},
+	}
+	req := domain.QuoteRequest{
+		FromToken: domain.Token{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: domain.ChainEthereum},
+		ToToken:   domain.Token{Symbol: "USDT", Address: "0xB", Decimals: 6, ChainID: domain.ChainEthereum},
+		Amount:    decimal.NewFromInt(1_000_000),
+		Slippage:  0.005,
+	}
+	quote, err := mapQuote(qr, req)
+	require.NoError(t, err)
+	assert.True(t, quote.EstimateFee.IsZero())
+}
+
+func TestMapQuote_EmptyFillsFallback(t *testing.T) {
+	qr := &QuoteResponse{
+		SellAmount: "1000000",
+		BuyAmount:  "999000",
+		Transaction: TxData{
+			To:   "0xRouter",
+			Data: "0xdeadbeef",
+			Gas:  "200000",
+		},
+		Route: RouteData{Fills: []RouteFill{}},
 	}
 	req := domain.QuoteRequest{
 		FromToken: domain.Token{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: domain.ChainEthereum},
@@ -446,16 +455,20 @@ func TestMapQuote_EmptySourcesFallback(t *testing.T) {
 	assert.Equal(t, "swap", quote.Route[0].Action)
 }
 
-func TestMapQuote_ZeroProportionSources(t *testing.T) {
+func TestMapQuote_ZeroProportionFills(t *testing.T) {
 	qr := &QuoteResponse{
 		SellAmount: "1000000",
 		BuyAmount:  "999000",
-		To:         "0xRouter",
-		Data:       "0xdeadbeef",
-		Gas:        "200000",
-		Sources: []SourceInfo{
-			{Name: "Uniswap", Proportion: "0"},
-			{Name: "SushiSwap", Proportion: "0"},
+		Transaction: TxData{
+			To:   "0xRouter",
+			Data: "0xdeadbeef",
+			Gas:  "200000",
+		},
+		Route: RouteData{
+			Fills: []RouteFill{
+				{Source: "Uniswap", Proportion: "0"},
+				{Source: "SushiSwap", Proportion: "0"},
+			},
 		},
 	}
 	req := domain.QuoteRequest{
@@ -470,12 +483,56 @@ func TestMapQuote_ZeroProportionSources(t *testing.T) {
 	assert.Equal(t, "0x", quote.Route[0].Protocol)
 }
 
+func TestMapQuote_ApprovalAddress(t *testing.T) {
+	qr := &QuoteResponse{
+		SellAmount: "1000000",
+		BuyAmount:  "999000",
+		Transaction: TxData{
+			To:   "0xAllowanceHolder",
+			Data: "0xdeadbeef",
+			Gas:  "200000",
+		},
+	}
+	req := domain.QuoteRequest{
+		FromToken: domain.Token{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: domain.ChainEthereum},
+		ToToken:   domain.Token{Symbol: "USDT", Address: "0xB", Decimals: 6, ChainID: domain.ChainEthereum},
+		Amount:    decimal.NewFromInt(1_000_000),
+		Slippage:  0.005,
+	}
+	quote, err := mapQuote(qr, req)
+	require.NoError(t, err)
+	assert.Equal(t, "0xAllowanceHolder", quote.ApprovalAddress)
+	require.NotNil(t, quote.AllowanceNeeded)
+	assert.True(t, quote.AllowanceNeeded.Equal(decimal.NewFromInt(1_000_000)))
+}
+
+func TestMapQuote_ApprovalSkippedForNativeToken(t *testing.T) {
+	qr := &QuoteResponse{
+		SellAmount: "1000000",
+		BuyAmount:  "999000",
+		Transaction: TxData{
+			To:   "0xAllowanceHolder",
+			Data: "0xdeadbeef",
+			Gas:  "200000",
+		},
+	}
+	req := domain.QuoteRequest{
+		FromToken: domain.Token{Symbol: "ETH", Address: "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE", Decimals: 18, ChainID: domain.ChainEthereum},
+		ToToken:   domain.Token{Symbol: "USDC", Address: "0xB", Decimals: 6, ChainID: domain.ChainEthereum},
+		Amount:    decimal.NewFromInt(1_000_000),
+		Slippage:  0.005,
+	}
+	quote, err := mapQuote(qr, req)
+	require.NoError(t, err)
+	assert.Empty(t, quote.ApprovalAddress)
+	assert.Nil(t, quote.AllowanceNeeded)
+}
+
 func TestProvider_Status_NilResponse(t *testing.T) {
-	mock := &mockClient{statusResp: nil}
-	p := &Provider{client: mock}
+	p := &Provider{client: &mockClient{}}
 	ctx := context.Background()
 
-	status, err := p.Status(ctx, "0xTx")
-	require.NoError(t, err)
-	assert.Equal(t, "unknown", status.State)
+	_, err := p.Status(ctx, "0xTx")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "status tracking not supported")
 }

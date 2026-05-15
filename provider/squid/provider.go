@@ -3,6 +3,7 @@ package squid
 import (
 	"context"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -16,7 +17,7 @@ import (
 
 type client interface {
 	Quote(ctx context.Context, params QuoteParams) (*QuoteResponse, error)
-	Status(ctx context.Context, txID string) (*StatusResponse, error)
+	Status(ctx context.Context, txID string, statusParams ...StatusParams) (*StatusResponse, error)
 }
 
 // Provider adapts the squid API to the domain provider interface.
@@ -104,17 +105,22 @@ func (p *Provider) Quote(ctx context.Context, req domain.QuoteRequest) (*domain.
 		FromAmount:  req.Amount.String(),
 		FromAddress: req.FromAddr,
 		ToAddress:   req.ToAddr,
-		Slippage:    strconv.FormatFloat(req.Slippage*100, 'f', 2, 64),
+		Slippage:    int(math.Round(req.Slippage * 100)),
 	}
 
 	qr, err := p.client.Quote(ctx, params)
 	if err != nil {
 		return nil, err
 	}
-	return mapQuote(qr)
+	return mapQuote(qr, req)
 }
 
 // Status fetches transaction status from the provider API.
+//
+// NOTE: Squid's /status endpoint optionally accepts fromChainId, toChainId, and
+// quoteId for more accurate status lookups, but the domain.Provider interface
+// only exposes txID. Callers that need richer status data should use the squid
+// client directly with StatusParams.
 func (p *Provider) Status(ctx context.Context, txID string) (*domain.Status, error) {
 	sr, err := p.client.Status(ctx, txID)
 	if err != nil {
@@ -123,7 +129,7 @@ func (p *Provider) Status(ctx context.Context, txID string) (*domain.Status, err
 	return mapStatus(sr), nil
 }
 
-func mapQuote(qr *QuoteResponse) (*domain.Quote, error) {
+func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error) {
 	if qr == nil {
 		return nil, fmt.Errorf("%s: empty quote response", Name)
 	}
@@ -141,8 +147,8 @@ func mapQuote(qr *QuoteResponse) (*domain.Quote, error) {
 	}
 
 	var gas uint64
-	if len(qr.Route.Estimate.GasCosts) > 0 && qr.Route.Estimate.GasCosts[0].Estimate != "" {
-		g, err := strconv.ParseUint(qr.Route.Estimate.GasCosts[0].Estimate, 10, 64)
+	if len(qr.Route.Estimate.GasCosts) > 0 && qr.Route.Estimate.GasCosts[0].GasLimit != "" {
+		g, err := strconv.ParseUint(qr.Route.Estimate.GasCosts[0].GasLimit, 10, 64)
 		if err != nil {
 			return nil, fmt.Errorf("%s: parse gas cost: %w", Name, err)
 		}
@@ -174,50 +180,61 @@ func mapQuote(qr *QuoteResponse) (*domain.Quote, error) {
 	}
 
 	var estFee decimal.Decimal
-	if len(qr.Route.Estimate.FeeCosts) > 0 {
-		f, err := decimal.NewFromString(qr.Route.Estimate.FeeCosts[0].Amount)
-		if err == nil {
-			estFee = f
+	for _, fc := range qr.Route.Estimate.FeeCosts {
+		if fc.Amount != "" {
+			f, err := decimal.NewFromString(fc.Amount)
+			if err == nil {
+				estFee = estFee.Add(f)
+			}
 		}
 	}
 
 	route := []domain.RouteStep{
 		{
-			ChainID:  domain.NumericToChainID(strconv.Itoa(qr.Route.Params.FromToken.ChainID)),
+			ChainID:  domain.NumericToChainID(qr.Route.Estimate.FromToken.ChainID),
 			Protocol: "squid",
 			Action:   "swap",
 		},
 		{
-			ChainID:  domain.NumericToChainID(strconv.Itoa(qr.Route.Params.ToToken.ChainID)),
+			ChainID:  domain.NumericToChainID(qr.Route.Estimate.ToToken.ChainID),
 			Protocol: "squid",
 			Action:   "bridge",
 		},
 	}
 
-	return &domain.Quote{
+	quote := &domain.Quote{
 		ID:          qr.RequestID,
-		FromToken:   mapToken(qr.Route.Params.FromToken),
-		ToToken:     mapToken(qr.Route.Params.ToToken),
+		FromToken:   mapToken(qr.Route.Estimate.FromToken),
+		ToToken:     mapToken(qr.Route.Estimate.ToToken),
 		FromAmount:  fromAmt,
 		ToAmount:    toAmt,
 		MinAmount:   minAmt,
-		Slippage:    0.005,
+		Slippage:    req.Slippage,
 		Provider:    string(Name),
 		Route:       route,
 		Deadline:    time.Now().Add(time.Duration(qr.Route.Estimate.EstimatedRouteDuration) * time.Second),
-		To:          qr.Route.TransactionRequest.TargetAddress,
+		To:          qr.Route.TransactionRequest.Target,
 		TxData:      txData,
 		TxValue:     txValue,
 		EstimateGas: gas,
 		EstimateFee: estFee,
-	}, nil
+	}
+
+	if qr.Route.TransactionRequest.Target != "" &&
+		qr.Route.Estimate.FromToken.Address != "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE" {
+		quote.ApprovalAddress = qr.Route.TransactionRequest.Target
+		allowance := fromAmt
+		quote.AllowanceNeeded = &allowance
+	}
+
+	return quote, nil
 }
 
 func mapStatus(sr *StatusResponse) *domain.Status {
 	if sr == nil {
 		return &domain.Status{State: "unknown"}
 	}
-	state := sr.Status
+	state := sr.SquidTransactionStatus
 	if state == "" {
 		state = "unknown"
 	}
@@ -241,6 +258,6 @@ func mapToken(t TokenInfo) domain.Token {
 		Symbol:   t.Symbol,
 		Address:  t.Address,
 		Decimals: t.Decimals,
-		ChainID:  domain.NumericToChainID(strconv.Itoa(t.ChainID)),
+		ChainID:  domain.NumericToChainID(t.ChainID),
 	}
 }

@@ -13,52 +13,58 @@ import (
 )
 
 type mockClient struct {
-	quoteResp  *QuoteResponse
-	quoteErr   error
-	statusResp *StatusResponse
-	statusErr  error
+	quoteResp       *QuoteResponse
+	quoteErr        error
+	lastQuoteParams QuoteParams
+	statusResp      *StatusResponse
+	statusErr       error
 }
 
 func (m *mockClient) Quote(ctx context.Context, params QuoteParams) (*QuoteResponse, error) {
+	m.lastQuoteParams = params
 	return m.quoteResp, m.quoteErr
 }
 
-func (m *mockClient) Status(ctx context.Context, txID string) (*StatusResponse, error) {
+func (m *mockClient) Status(ctx context.Context, txID string, statusParams ...StatusParams) (*StatusResponse, error) {
 	return m.statusResp, m.statusErr
+}
+
+func makeTestQuoteResponse(requestID, toAmount, toAmountMin string) *QuoteResponse {
+	return &QuoteResponse{
+		RequestID: requestID,
+		Route: RouteData{
+			Estimate: Estimate{
+				FromAmount:  "1000000",
+				ToAmount:    toAmount,
+				ToAmountMin: toAmountMin,
+				FromToken:   TokenInfo{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: "1"},
+				ToToken:     TokenInfo{Symbol: "USDT", Address: "0xB", Decimals: 6, ChainID: "8453"},
+				GasCosts: []GasCost{
+					{GasLimit: "50000", Type: "executeCall", Amount: "78048196200000"},
+				},
+				FeeCosts: []FeeCost{
+					{Amount: "100", Name: "Gas receiver fee"},
+				},
+				EstimatedRouteDuration: 300,
+			},
+			TransactionRequest: TransactionRequest{
+				Type:     "ON_CHAIN_EXECUTION",
+				Target:   "0xRouter",
+				Data:     "0xdeadbeef",
+				Value:    "0",
+				GasLimit: "200000",
+			},
+			Params: RouteParams{
+				FromChain: "1",
+				ToChain:   "8453",
+			},
+		},
+	}
 }
 
 func TestProvider_Quote_Success(t *testing.T) {
 	mock := &mockClient{
-		quoteResp: &QuoteResponse{
-			RequestID: "sqd-123",
-			Route: RouteData{
-				Estimate: Estimate{
-					FromAmount:  "1000000",
-					ToAmount:    "999000",
-					ToAmountMin: "995000",
-					GasCosts: []GasCost{
-						{Estimate: "50000"},
-					},
-					FeeCosts: []FeeCost{
-						{Amount: "100"},
-					},
-					EstimatedRouteDuration: 300,
-				},
-				TransactionRequest: TransactionRequest{
-					TargetAddress: "0xRouter",
-					Data:          "0xdeadbeef",
-					Value:         "0",
-					GasLimit:      "200000",
-				},
-				Params: struct {
-					FromToken TokenInfo `json:"fromToken"`
-					ToToken   TokenInfo `json:"toToken"`
-				}{
-					FromToken: TokenInfo{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: 1},
-					ToToken:   TokenInfo{Symbol: "USDT", Address: "0xB", Decimals: 6, ChainID: 8453},
-				},
-			},
-		},
+		quoteResp: makeTestQuoteResponse("sqd-123", "999000", "995000"),
 	}
 
 	p := &Provider{client: mock}
@@ -82,6 +88,42 @@ func TestProvider_Quote_Success(t *testing.T) {
 	assert.Equal(t, "squid", quote.Provider)
 	assert.Equal(t, 2, len(quote.Route))
 	assert.Equal(t, uint64(50_000), quote.EstimateGas)
+	assert.Equal(t, "0xRouter", quote.ApprovalAddress)
+	require.NotNil(t, quote.AllowanceNeeded)
+	assert.True(t, quote.AllowanceNeeded.Equal(decimal.NewFromInt(1_000_000)))
+}
+
+func TestProvider_Quote_SlippageInteger(t *testing.T) {
+	mock := &mockClient{
+		quoteResp: &QuoteResponse{
+			RequestID: "sq-slip",
+			Route: RouteData{
+				Estimate: Estimate{
+					FromAmount:  "1000000",
+					ToAmount:    "999000",
+					ToAmountMin: "994000",
+					GasCosts:    []GasCost{{GasLimit: "50000"}},
+				},
+				TransactionRequest: TransactionRequest{GasLimit: "50000"},
+			},
+		},
+	}
+	p := &Provider{client: mock}
+	ctx := context.Background()
+
+	req := domain.QuoteRequest{
+		FromToken: domain.Token{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: domain.ChainEthereum},
+		ToToken:   domain.Token{Symbol: "USDT", Address: "0xB", Decimals: 6, ChainID: domain.ChainBase},
+		Amount:    decimal.NewFromInt(1_000_000),
+		Slippage:  0.005,
+		FromAddr:  "0xFrom",
+		ToAddr:    "0xTo",
+	}
+
+	quote, err := p.Quote(ctx, req)
+	require.NoError(t, err)
+	require.NotNil(t, quote)
+	assert.Equal(t, 1, mock.lastQuoteParams.Slippage)
 }
 
 func TestProvider_Quote_HTTPError(t *testing.T) {
@@ -110,14 +152,14 @@ func TestProvider_Quote_InvalidGas(t *testing.T) {
 					FromAmount: "1000000",
 					ToAmount:   "999000",
 					GasCosts: []GasCost{
-						{Estimate: "not-a-number"},
+						{GasLimit: "not-a-number"},
 					},
 				},
 				TransactionRequest: TransactionRequest{
-					TargetAddress: "0xRouter",
-					Data:          "0xdeadbeef",
-					Value:         "0",
-					GasLimit:      "200000",
+					Target:   "0xRouter",
+					Data:     "0xdeadbeef",
+					Value:    "0",
+					GasLimit: "200000",
 				},
 			},
 		},
@@ -170,8 +212,8 @@ func TestNewProvider_WithAPIKey(t *testing.T) {
 func TestProvider_Status_Success(t *testing.T) {
 	mock := &mockClient{
 		statusResp: &StatusResponse{
-			ID:     "tx-456",
-			Status: "completed",
+			ID:                     "tx-456",
+			SquidTransactionStatus: "completed",
 			FromChain: &ChainTxInfo{
 				TransactionID:  "0xsrc",
 				TransactionURL: "https://etherscan.io/tx/0xsrc",
@@ -206,8 +248,8 @@ func TestProvider_Status_HTTPError(t *testing.T) {
 func TestProvider_Status_NilChains(t *testing.T) {
 	mock := &mockClient{
 		statusResp: &StatusResponse{
-			ID:     "tx-empty",
-			Status: "pending",
+			ID:                     "tx-empty",
+			SquidTransactionStatus: "pending",
 		},
 	}
 	p := &Provider{client: mock}
@@ -276,36 +318,9 @@ func TestProvider_Quote_NilResponse(t *testing.T) {
 }
 
 func TestProvider_Quote_EmptyGasCosts(t *testing.T) {
-	mock := &mockClient{
-		quoteResp: &QuoteResponse{
-			RequestID: "sqd-empty-gas",
-			Route: RouteData{
-				Estimate: Estimate{
-					FromAmount:  "1000000",
-					ToAmount:    "999000",
-					ToAmountMin: "995000",
-					GasCosts:    []GasCost{},
-					FeeCosts: []FeeCost{
-						{Amount: "100"},
-					},
-					EstimatedRouteDuration: 300,
-				},
-				TransactionRequest: TransactionRequest{
-					TargetAddress: "0xRouter",
-					Data:          "0xdeadbeef",
-					Value:         "0",
-					GasLimit:      "200000",
-				},
-				Params: struct {
-					FromToken TokenInfo `json:"fromToken"`
-					ToToken   TokenInfo `json:"toToken"`
-				}{
-					FromToken: TokenInfo{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: 1},
-					ToToken:   TokenInfo{Symbol: "USDT", Address: "0xB", Decimals: 6, ChainID: 8453},
-				},
-			},
-		},
-	}
+	qr := makeTestQuoteResponse("sqd-empty-gas", "999000", "995000")
+	qr.Route.Estimate.GasCosts = []GasCost{}
+	mock := &mockClient{quoteResp: qr}
 	p := &Provider{client: mock}
 	ctx := context.Background()
 	req := domain.QuoteRequest{
@@ -323,36 +338,9 @@ func TestProvider_Quote_EmptyGasCosts(t *testing.T) {
 }
 
 func TestProvider_Quote_EmptyFeeCosts(t *testing.T) {
-	mock := &mockClient{
-		quoteResp: &QuoteResponse{
-			RequestID: "sqd-empty-fee",
-			Route: RouteData{
-				Estimate: Estimate{
-					FromAmount:  "1000000",
-					ToAmount:    "999000",
-					ToAmountMin: "995000",
-					GasCosts: []GasCost{
-						{Estimate: "50000"},
-					},
-					FeeCosts:               []FeeCost{},
-					EstimatedRouteDuration: 300,
-				},
-				TransactionRequest: TransactionRequest{
-					TargetAddress: "0xRouter",
-					Data:          "0xdeadbeef",
-					Value:         "0",
-					GasLimit:      "200000",
-				},
-				Params: struct {
-					FromToken TokenInfo `json:"fromToken"`
-					ToToken   TokenInfo `json:"toToken"`
-				}{
-					FromToken: TokenInfo{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: 1},
-					ToToken:   TokenInfo{Symbol: "USDT", Address: "0xB", Decimals: 6, ChainID: 8453},
-				},
-			},
-		},
-	}
+	qr := makeTestQuoteResponse("sqd-empty-fee", "999000", "995000")
+	qr.Route.Estimate.FeeCosts = []FeeCost{}
+	mock := &mockClient{quoteResp: qr}
 	p := &Provider{client: mock}
 	ctx := context.Background()
 	req := domain.QuoteRequest{
@@ -370,38 +358,11 @@ func TestProvider_Quote_EmptyFeeCosts(t *testing.T) {
 }
 
 func TestProvider_Quote_NonZeroValue(t *testing.T) {
-	mock := &mockClient{
-		quoteResp: &QuoteResponse{
-			RequestID: "sqd-value",
-			Route: RouteData{
-				Estimate: Estimate{
-					FromAmount:  "1000000",
-					ToAmount:    "999000",
-					ToAmountMin: "995000",
-					GasCosts: []GasCost{
-						{Estimate: "50000"},
-					},
-					FeeCosts: []FeeCost{
-						{Amount: "100"},
-					},
-					EstimatedRouteDuration: 300,
-				},
-				TransactionRequest: TransactionRequest{
-					TargetAddress: "0xRouter",
-					Data:          "0xdeadbeef",
-					Value:         "1000000000000000000",
-					GasLimit:      "200000",
-				},
-				Params: struct {
-					FromToken TokenInfo `json:"fromToken"`
-					ToToken   TokenInfo `json:"toToken"`
-				}{
-					FromToken: TokenInfo{Symbol: "ETH", Address: "0xE", Decimals: 18, ChainID: 1},
-					ToToken:   TokenInfo{Symbol: "ETH", Address: "0xE", Decimals: 18, ChainID: 8453},
-				},
-			},
-		},
-	}
+	qr := makeTestQuoteResponse("sqd-value", "999000", "995000")
+	qr.Route.TransactionRequest.Value = "1000000000000000000"
+	qr.Route.Estimate.FromToken = TokenInfo{Symbol: "ETH", Address: "0xE", Decimals: 18, ChainID: "1"}
+	qr.Route.Estimate.ToToken = TokenInfo{Symbol: "ETH", Address: "0xE", Decimals: 18, ChainID: "8453"}
+	mock := &mockClient{quoteResp: qr}
 	p := &Provider{client: mock}
 	ctx := context.Background()
 	req := domain.QuoteRequest{
@@ -429,10 +390,10 @@ func TestProvider_Quote_InvalidGasLimit(t *testing.T) {
 					GasCosts:   []GasCost{},
 				},
 				TransactionRequest: TransactionRequest{
-					TargetAddress: "0xRouter",
-					Data:          "0xdeadbeef",
-					Value:         "0",
-					GasLimit:      "not-a-number",
+					Target:   "0xRouter",
+					Data:     "0xdeadbeef",
+					Value:    "0",
+					GasLimit: "not-a-number",
 				},
 			},
 		},
@@ -454,38 +415,9 @@ func TestProvider_Quote_InvalidGasLimit(t *testing.T) {
 }
 
 func TestProvider_Quote_EmptyGasCostEstimate(t *testing.T) {
-	mock := &mockClient{
-		quoteResp: &QuoteResponse{
-			RequestID: "sqd-empty-est",
-			Route: RouteData{
-				Estimate: Estimate{
-					FromAmount:  "1000000",
-					ToAmount:    "999000",
-					ToAmountMin: "995000",
-					GasCosts: []GasCost{
-						{Estimate: ""},
-					},
-					FeeCosts: []FeeCost{
-						{Amount: "100"},
-					},
-					EstimatedRouteDuration: 300,
-				},
-				TransactionRequest: TransactionRequest{
-					TargetAddress: "0xRouter",
-					Data:          "0xdeadbeef",
-					Value:         "0",
-					GasLimit:      "200000",
-				},
-				Params: struct {
-					FromToken TokenInfo `json:"fromToken"`
-					ToToken   TokenInfo `json:"toToken"`
-				}{
-					FromToken: TokenInfo{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: 1},
-					ToToken:   TokenInfo{Symbol: "USDT", Address: "0xB", Decimals: 6, ChainID: 8453},
-				},
-			},
-		},
-	}
+	qr := makeTestQuoteResponse("sqd-empty-est", "999000", "995000")
+	qr.Route.Estimate.GasCosts = []GasCost{{GasLimit: ""}}
+	mock := &mockClient{quoteResp: qr}
 	p := &Provider{client: mock}
 	ctx := context.Background()
 	req := domain.QuoteRequest{
@@ -499,6 +431,29 @@ func TestProvider_Quote_EmptyGasCostEstimate(t *testing.T) {
 
 	quote, err := p.Quote(ctx, req)
 	require.NoError(t, err)
-	// Should fall back to GasLimit since GasCosts[0].Estimate is empty
+	// Should fall back to GasLimit since GasCosts[0].GasLimit is empty
 	assert.Equal(t, uint64(200_000), quote.EstimateGas)
+}
+
+func TestProvider_Quote_ApprovalSkippedForNativeToken(t *testing.T) {
+	qr := makeTestQuoteResponse("sqd-native", "999000", "995000")
+	qr.Route.Estimate.FromToken = TokenInfo{Symbol: "ETH", Address: "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE", Decimals: 18, ChainID: "1"}
+	qr.Route.Estimate.ToToken = TokenInfo{Symbol: "USDC", Address: "0xB", Decimals: 6, ChainID: "8453"}
+	qr.Route.TransactionRequest.Value = "1000000000000000000"
+	mock := &mockClient{quoteResp: qr}
+	p := &Provider{client: mock}
+	ctx := context.Background()
+	req := domain.QuoteRequest{
+		FromToken: domain.Token{Symbol: "ETH", Address: "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE", Decimals: 18, ChainID: domain.ChainEthereum},
+		ToToken:   domain.Token{Symbol: "USDC", Address: "0xB", Decimals: 6, ChainID: domain.ChainBase},
+		Amount:    decimal.NewFromInt(1_000_000),
+		Slippage:  0.005,
+		FromAddr:  "0xFrom",
+		ToAddr:    "0xTo",
+	}
+
+	quote, err := p.Quote(ctx, req)
+	require.NoError(t, err)
+	assert.Empty(t, quote.ApprovalAddress)
+	assert.Nil(t, quote.AllowanceNeeded)
 }

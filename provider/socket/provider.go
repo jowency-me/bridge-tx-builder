@@ -8,8 +8,6 @@ import (
 	"strings"
 	"time"
 
-	hexutil "github.com/jowency-me/bridge-tx-builder/provider/internal/hex"
-
 	"github.com/jowency-me/bridge-tx-builder/domain"
 	"github.com/shopspring/decimal"
 )
@@ -123,82 +121,74 @@ func (p *Provider) Status(ctx context.Context, txID string) (*domain.Status, err
 }
 
 func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error) {
-	if qr == nil {
-		return nil, fmt.Errorf("%s: empty quote response", Name)
-	}
-	if len(qr.Routes) == 0 {
-		return nil, fmt.Errorf("%s: no routes found", Name)
+	if qr == nil || qr.Result == nil || qr.Result.AutoRoute == nil {
+		return nil, fmt.Errorf("%s: no route found", Name)
 	}
 
-	route := qr.Routes[0]
+	ar := qr.Result.AutoRoute
 
-	toAmt, err := decimal.NewFromString(route.ToAmount)
+	toAmt, err := decimal.NewFromString(ar.OutputAmount)
 	if err != nil {
 		toAmt = decimal.Zero
 	}
 
-	var fee decimal.Decimal
-	if route.TotalFee != "" {
-		f, err := decimal.NewFromString(route.TotalFee)
-		if err == nil {
-			fee = f
+	var minAmt decimal.Decimal
+	if ar.Output.MinAmountOut != "" {
+		parsed, pErr := decimal.NewFromString(ar.Output.MinAmountOut)
+		if pErr == nil && parsed.IsPositive() {
+			minAmt = parsed
 		}
 	}
-	if fee.IsZero() && route.TotalGasFees != "" {
-		f, err := decimal.NewFromString(route.TotalGasFees)
-		if err == nil {
-			fee = f
-		}
+	if minAmt.IsZero() {
+		minAmt = toAmt.Mul(decimal.NewFromFloat(1 - req.Slippage))
 	}
 
-	minAmt := toAmt.Mul(decimal.NewFromInt(995)).Div(decimal.NewFromInt(1000))
-
-	routeSteps := make([]domain.RouteStep, 0, len(route.UserTxs))
-	for _, tx := range route.UserTxs {
-		action := "swap"
-		if tx.TxType == "fund-movr" || tx.TxType == "bridge" {
-			action = "bridge"
-		}
-		chainID := domain.NumericToChainID(tx.ChainID)
-		if chainID == "" {
-			chainID = req.ToToken.ChainID
-		}
-		routeSteps = append(routeSteps, domain.RouteStep{
-			ChainID:  chainID,
+	// Build route steps from the auto-route data
+	routeSteps := []domain.RouteStep{
+		{
+			ChainID:  req.FromToken.ChainID,
 			Protocol: "socket",
-			Action:   action,
-		})
+			Action:   "bridge",
+		},
 	}
 
-	var txData []byte
-	if len(route.UserTxs) > 0 && strings.HasPrefix(route.UserTxs[0].TxData, "0x") {
-		var err error
-		txData, err = hexutil.Decode(route.UserTxs[0].TxData[2:])
-		if err != nil {
-			return nil, fmt.Errorf("%s: invalid tx data: %w", Name, err)
+	// LIMITATION: The new Bungee API uses Permit2 (signTypedData) instead of
+	// traditional transaction data. TxData, To, and TxValue are NOT populated
+	// in the quote response. The user must sign the EIP-712 typed data instead.
+	// This quote is valid for rate comparison but cannot be used to build a
+	// transaction directly.
+
+	var deadline time.Time
+	if ar.QuoteExpiry > 0 {
+		deadline = time.Unix(ar.QuoteExpiry, 0)
+	} else {
+		deadline = time.Now().Add(10 * time.Minute)
+	}
+
+	quote := &domain.Quote{
+		ID:         fmt.Sprintf("socket-%s", ar.QuoteID),
+		FromToken:  req.FromToken,
+		ToToken:    req.ToToken,
+		FromAmount: req.Amount,
+		ToAmount:   toAmt,
+		MinAmount:  minAmt,
+		Slippage:   ar.Slippage,
+		Provider:   string(Name),
+		Route:      routeSteps,
+		Deadline:   deadline,
+	}
+
+	if ar.ApprovalData != nil && ar.ApprovalData.SpenderAddress != "" {
+		quote.ApprovalAddress = ar.ApprovalData.SpenderAddress
+		if ar.ApprovalData.Amount != "" {
+			a, err := decimal.NewFromString(ar.ApprovalData.Amount)
+			if err == nil {
+				quote.AllowanceNeeded = &a
+			}
 		}
 	}
 
-	var toAddr string
-	if len(route.UserTxs) > 0 {
-		toAddr = route.UserTxs[0].TxTarget
-	}
-
-	return &domain.Quote{
-		ID:          fmt.Sprintf("socket-%s", route.RouteID),
-		FromToken:   req.FromToken,
-		ToToken:     req.ToToken,
-		FromAmount:  req.Amount,
-		ToAmount:    toAmt,
-		MinAmount:   minAmt,
-		Slippage:    req.Slippage,
-		Provider:    string(Name),
-		Route:       routeSteps,
-		Deadline:    time.Now().Add(10 * time.Minute),
-		To:          toAddr,
-		TxData:      txData,
-		EstimateFee: fee,
-	}, nil
+	return quote, nil
 }
 
 func mapStatus(sr *StatusResponse, txID string) *domain.Status {
@@ -206,14 +196,33 @@ func mapStatus(sr *StatusResponse, txID string) *domain.Status {
 		return &domain.Status{TxID: txID, State: "unknown"}
 	}
 	state := "unknown"
-	if sr.Result.Status != "" {
-		state = sr.Result.Status
+	var srcTx, dstTx string
+	if len(sr.Result) > 0 {
+		r := sr.Result[0]
+		// Use destination status if available (more meaningful for bridge completion),
+		// otherwise fall back to origin status
+		if r.DestinationData.Status != "" {
+			state = strings.ToLower(r.DestinationData.Status)
+		} else if r.OriginData.Status != "" {
+			state = strings.ToLower(r.OriginData.Status)
+		}
+		srcTx = r.OriginData.TxHash
+		dstTx = r.DestinationData.TxHash
+	}
+	// Normalize Bungee-specific states to domain conventions
+	switch state {
+	case "pending":
+		state = "pending"
+	case "completed", "done":
+		state = "completed"
+	case "failed":
+		state = "failed"
 	}
 	return &domain.Status{
 		TxID:       txID,
 		State:      state,
-		SrcChainTx: sr.Result.SourceTxHash,
-		DstChainTx: sr.Result.DestinationTxHash,
+		SrcChainTx: srcTx,
+		DstChainTx: dstTx,
 		UpdatedAt:  time.Now(),
 	}
 }

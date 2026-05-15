@@ -36,29 +36,6 @@ type rpcNode struct {
 	usdcAddr string
 }
 
-const (
-	publicEthereumRPC  = "https://ethereum-rpc.publicnode.com"
-	publicBaseRPC      = "https://base-mainnet.public.blastapi.io"
-	publicOptimismRPC  = "https://mainnet.optimism.io"
-	publicPolygonRPC   = "https://polygon.drpc.org"
-	publicBSCRPC       = "https://bsc-dataseed.binance.org"
-	publicArbitrumRPC  = "https://arb1.arbitrum.io/rpc"
-	publicAvalancheRPC = "https://api.avax.network/ext/bc/C/rpc"
-	publicSolanaRPC    = "https://api.mainnet-beta.solana.com"
-	publicTronRPC      = "https://api.trongrid.io"
-)
-
-var publicEthereumRPCURLs = []string{
-	publicEthereumRPC,
-	"https://eth-mainnet.public.blastapi.io",
-	"https://eth.drpc.org",
-}
-
-var publicTronRPCURLs = []string{
-	"https://api.tronstack.io",
-	publicTronRPC,
-}
-
 var evmNodes = []rpcNode{
 	{
 		name:     "ethereum",

@@ -30,11 +30,11 @@ func (m *mockClient) Status(ctx context.Context, txID string) (*StatusResponse, 
 func TestProvider_Quote_Success(t *testing.T) {
 	mock := &mockClient{
 		quoteResp: &QuoteResponse{
-			AmountOut:              "999000",
-			Bridge:                 "hop",
-			EstimatedRecipientTime: 120,
-			Fee:                    "1000",
-			Slippage:               "0.005",
+			EstimatedReceived: "999000",
+			Bridge:            "hop",
+			Deadline:          1779434253,
+			BonderFee:         "1000",
+			Slippage:          0.005,
 		},
 	}
 
@@ -77,7 +77,7 @@ func TestProvider_Quote_HTTPError(t *testing.T) {
 }
 
 func TestProvider_Quote_UnsupportedFromChain(t *testing.T) {
-	mock := &mockClient{quoteResp: &QuoteResponse{AmountOut: "1000"}}
+	mock := &mockClient{quoteResp: &QuoteResponse{EstimatedReceived: "1000"}}
 	p := &Provider{client: mock}
 	ctx := context.Background()
 	req := domain.QuoteRequest{
@@ -95,7 +95,7 @@ func TestProvider_Quote_UnsupportedFromChain(t *testing.T) {
 }
 
 func TestProvider_Quote_UnsupportedToChain(t *testing.T) {
-	mock := &mockClient{quoteResp: &QuoteResponse{AmountOut: "1000"}}
+	mock := &mockClient{quoteResp: &QuoteResponse{EstimatedReceived: "1000"}}
 	p := &Provider{client: mock}
 	ctx := context.Background()
 	req := domain.QuoteRequest{
@@ -133,9 +133,9 @@ func TestProvider_Quote_NilResponse(t *testing.T) {
 func TestProvider_Quote_InvalidAmountOut(t *testing.T) {
 	mock := &mockClient{
 		quoteResp: &QuoteResponse{
-			AmountOut: "not-a-number",
-			Bridge:    "hop",
-			Slippage:  "0.005",
+			EstimatedReceived: "not-a-number",
+			Bridge:            "hop",
+			Slippage:          0.005,
 		},
 	}
 	p := &Provider{client: mock}
@@ -154,12 +154,12 @@ func TestProvider_Quote_InvalidAmountOut(t *testing.T) {
 	assert.True(t, quote.ToAmount.IsZero())
 }
 
-func TestProvider_Quote_InvalidSlippage(t *testing.T) {
+func TestProvider_Quote_NegativeSlippageFallback(t *testing.T) {
 	mock := &mockClient{
 		quoteResp: &QuoteResponse{
-			AmountOut: "999000",
-			Bridge:    "hop",
-			Slippage:  "not-a-number",
+			EstimatedReceived: "999000",
+			Bridge:            "hop",
+			Slippage:          -1,
 		},
 	}
 	p := &Provider{client: mock}
@@ -168,22 +168,22 @@ func TestProvider_Quote_InvalidSlippage(t *testing.T) {
 		FromToken: domain.Token{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: domain.ChainEthereum},
 		ToToken:   domain.Token{Symbol: "USDT", Address: "0xB", Decimals: 6, ChainID: domain.ChainBase},
 		Amount:    decimal.NewFromInt(1_000_000),
-		Slippage:  0.005,
+		Slippage:  0.03,
 		FromAddr:  "0xFrom",
 		ToAddr:    "0xTo",
 	}
 
-	_, err := p.Quote(ctx, req)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "parse slippage")
+	quote, err := p.Quote(ctx, req)
+	require.NoError(t, err)
+	assert.Equal(t, 0.03, quote.Slippage)
 }
 
 func TestProvider_Quote_ZeroSlippageFallback(t *testing.T) {
 	mock := &mockClient{
 		quoteResp: &QuoteResponse{
-			AmountOut: "999000",
-			Bridge:    "hop",
-			Slippage:  "0",
+			EstimatedReceived: "999000",
+			Bridge:            "hop",
+			Slippage:          0,
 		},
 	}
 	p := &Provider{client: mock}
@@ -202,12 +202,13 @@ func TestProvider_Quote_ZeroSlippageFallback(t *testing.T) {
 	assert.Equal(t, 0.01, quote.Slippage)
 }
 
-func TestProvider_Quote_EmptySlippageFallback(t *testing.T) {
+func TestProvider_Quote_BonderFee(t *testing.T) {
 	mock := &mockClient{
 		quoteResp: &QuoteResponse{
-			AmountOut: "999000",
-			Bridge:    "hop",
-			Slippage:  "",
+			EstimatedReceived: "999000",
+			Bridge:            "hop",
+			BonderFee:         "2500",
+			Slippage:          0.005,
 		},
 	}
 	p := &Provider{client: mock}
@@ -216,14 +217,66 @@ func TestProvider_Quote_EmptySlippageFallback(t *testing.T) {
 		FromToken: domain.Token{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: domain.ChainEthereum},
 		ToToken:   domain.Token{Symbol: "USDT", Address: "0xB", Decimals: 6, ChainID: domain.ChainBase},
 		Amount:    decimal.NewFromInt(1_000_000),
-		Slippage:  0.02,
+		Slippage:  0.005,
 		FromAddr:  "0xFrom",
 		ToAddr:    "0xTo",
 	}
 
 	quote, err := p.Quote(ctx, req)
 	require.NoError(t, err)
-	assert.Equal(t, 0.02, quote.Slippage)
+	assert.True(t, quote.EstimateFee.Equal(decimal.NewFromInt(2500)))
+}
+
+func TestProvider_Quote_SlippageBasedMinAmount(t *testing.T) {
+	mock := &mockClient{
+		quoteResp: &QuoteResponse{
+			EstimatedReceived: "1000000",
+			Bridge:            "hop",
+			Slippage:          0,
+		},
+	}
+	p := &Provider{client: mock}
+	ctx := context.Background()
+
+	// 3% slippage, no AmountOutMin from API — fallback to slippage-based
+	req := domain.QuoteRequest{
+		FromToken: domain.Token{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: domain.ChainEthereum},
+		ToToken:   domain.Token{Symbol: "USDT", Address: "0xB", Decimals: 6, ChainID: domain.ChainBase},
+		Amount:    decimal.NewFromInt(1_000_000),
+		Slippage:  0.03,
+		FromAddr:  "0xFrom",
+		ToAddr:    "0xTo",
+	}
+	quote, err := p.Quote(ctx, req)
+	require.NoError(t, err)
+	expected := decimal.NewFromInt(970_000) // 1000000 * (1 - 0.03)
+	assert.True(t, quote.MinAmount.Equal(expected), "expected %s got %s", expected, quote.MinAmount)
+}
+
+func TestProvider_Quote_DeadlineFromAPI(t *testing.T) {
+	mock := &mockClient{
+		quoteResp: &QuoteResponse{
+			EstimatedReceived: "999000",
+			Bridge:            "hop",
+			Deadline:          1779434253,
+			Slippage:          0.005,
+		},
+	}
+	p := &Provider{client: mock}
+	ctx := context.Background()
+	req := domain.QuoteRequest{
+		FromToken: domain.Token{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: domain.ChainEthereum},
+		ToToken:   domain.Token{Symbol: "USDT", Address: "0xB", Decimals: 6, ChainID: domain.ChainBase},
+		Amount:    decimal.NewFromInt(1_000_000),
+		Slippage:  0.005,
+		FromAddr:  "0xFrom",
+		ToAddr:    "0xTo",
+	}
+
+	quote, err := p.Quote(ctx, req)
+	require.NoError(t, err)
+	expected := time.Unix(1779434253, 0)
+	assert.True(t, quote.Deadline.Equal(expected), "expected %v got %v", expected, quote.Deadline)
 }
 
 func TestProvider_Status(t *testing.T) {

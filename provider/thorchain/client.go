@@ -1,4 +1,10 @@
 // Package thorchain provides a quote adapter for the THORChain cross-chain liquidity protocol.
+//
+// API Reference:
+//
+//	Quote: https://docs.thorchain.org
+//	Status: https://docs.thorchain.org
+//	API version: v1 (verified 2026-05-15)
 package thorchain
 
 import (
@@ -10,7 +16,7 @@ import (
 	"time"
 )
 
-const defaultBaseURL = "https://thornode.ninerealms.com"
+const defaultBaseURL = "https://thornode.thorchain.network"
 
 // Client is the raw HTTP client for THORChain API.
 type Client struct {
@@ -74,29 +80,77 @@ type FeesInfo struct {
 
 // StatusResponse contains raw thorchain status response data.
 type StatusResponse struct {
-	Tx     TxDetail `json:"tx"`
-	Stages TxStages `json:"stages"`
+	Tx            StatusTxDetail `json:"tx"`
+	PlannedOutTxs []PlannedOutTx `json:"planned_out_txs"`
+	OutTxs        []OutTx        `json:"out_txs"`
+	Stages        StatusStages   `json:"stages"`
 }
 
-// TxDetail contains provider transaction details.
-type TxDetail struct {
-	ID     string `json:"id"`
-	Chain  string `json:"chain"`
-	Status string `json:"status"`
+// StatusTxDetail contains inbound transaction details from status response.
+type StatusTxDetail struct {
+	ID          string       `json:"id"`
+	Chain       string       `json:"chain"`
+	FromAddress string       `json:"from_address"`
+	ToAddress   string       `json:"to_address"`
+	Coins       []StatusCoin `json:"coins"`
+	Gas         interface{}  `json:"gas"`
+	Memo        string       `json:"memo"`
 }
 
-// TxStage contains a provider transaction stage status.
-type TxStage struct {
+// StatusCoin contains coin data in status response.
+type StatusCoin struct {
+	Asset  string `json:"asset"`
+	Amount string `json:"amount"`
+}
+
+// PlannedOutTx contains planned outbound transaction data.
+type PlannedOutTx struct {
+	Chain     string     `json:"chain"`
+	ToAddress string     `json:"to_address"`
+	Coin      StatusCoin `json:"coin"`
+	Refund    bool       `json:"refund"`
+}
+
+// OutTx contains outbound transaction information.
+type OutTx struct {
+	ID          string       `json:"id"`
+	Chain       string       `json:"chain"`
+	FromAddress string       `json:"from_address"`
+	ToAddress   string       `json:"to_address"`
+	Coins       []StatusCoin `json:"coins"`
+	Gas         []StatusCoin `json:"gas"`
+	Memo        string       `json:"memo"`
+}
+
+// StatusStages contains transaction stage statuses (flat structure matching real API).
+type StatusStages struct {
+	InboundObserved            InboundObservedStage `json:"inbound_observed"`
+	InboundConfirmationCounted ConfirmCountedStage  `json:"inbound_confirmation_counted"`
+	InboundFinalised           StageCompleted       `json:"inbound_finalised"`
+	SwapStatus                 SwapStatusStage      `json:"swap_status"`
+	SwapFinalised              StageCompleted       `json:"swap_finalised"`
+}
+
+// InboundObservedStage contains inbound observation stage data.
+type InboundObservedStage struct {
+	FinalCount int  `json:"final_count"`
+	Completed  bool `json:"completed"`
+}
+
+// ConfirmCountedStage contains confirmation counting stage data.
+type ConfirmCountedStage struct {
+	RemainingConfirmationSeconds int64 `json:"remaining_confirmation_seconds"`
+	Completed                    bool  `json:"completed"`
+}
+
+// StageCompleted is a simple completed stage.
+type StageCompleted struct {
 	Completed bool `json:"completed"`
 }
 
-// TxStages contains provider transaction stage statuses.
-type TxStages struct {
-	InboundObserved            TxStage `json:"inbound_observed"`
-	InboundConfirmationCounted TxStage `json:"inbound_confirmation_counted"`
-	InboundFinalised           TxStage `json:"inbound_finalised"`
-	SwapStatus                 TxStage `json:"swap_status"`
-	OutboundSigned             TxStage `json:"outbound_signed"`
+// SwapStatusStage contains swap status data.
+type SwapStatusStage struct {
+	Pending bool `json:"pending"`
 }
 
 // Quote fetches a quote from the provider API.
@@ -139,7 +193,7 @@ func (c *Client) Quote(ctx context.Context, params QuoteParams) (*QuoteResponse,
 
 // Status fetches transaction status from the provider API.
 func (c *Client) Status(ctx context.Context, txID string) (*StatusResponse, error) {
-	u, err := url.Parse(c.baseURL + "/thorchain/tx/" + txID)
+	u, err := url.Parse(c.baseURL + "/thorchain/tx/status/" + txID)
 	if err != nil {
 		return nil, err
 	}

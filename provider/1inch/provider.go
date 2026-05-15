@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -93,9 +92,9 @@ func (p *Provider) Quote(ctx context.Context, req domain.QuoteRequest) (*domain.
 		Dst:              req.ToToken.Address,
 		Amount:           req.Amount.String(),
 		From:             req.FromAddr,
-		Slippage:         strconv.FormatFloat(req.Slippage*100, 'f', 2, 64),
-		DisableEstimate:  "false",
-		AllowPartialFill: "false",
+		Slippage:         req.Slippage * 100,
+		DisableEstimate:  false,
+		AllowPartialFill: false,
 	}
 
 	qr, err := p.client.Quote(ctx, params)
@@ -106,26 +105,17 @@ func (p *Provider) Quote(ctx context.Context, req domain.QuoteRequest) (*domain.
 }
 
 // Status returns the status of a transaction.
+// NOTE: 1inch does not provide a transaction status API. This method returns an
+// error to indicate that status tracking is not supported.
 func (p *Provider) Status(ctx context.Context, txID string) (*domain.Status, error) {
-	_, err := p.client.Status(ctx, txID)
-	if err != nil {
-		return nil, err
-	}
-	// 1inch has no transaction status API; return reachable as a best effort.
-	return &domain.Status{
-		State:      "completed",
-		SrcChainTx: txID,
-	}, nil
+	return nil, fmt.Errorf("%s: status tracking not supported", Name)
 }
 
 func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error) {
 	if qr == nil {
 		return nil, fmt.Errorf("%s: empty quote response", Name)
 	}
-	fromAmt, err := decimal.NewFromString(qr.SrcAmount)
-	if err != nil {
-		fromAmt = req.Amount
-	}
+	fromAmt := req.Amount
 	toAmt, err := decimal.NewFromString(qr.DstAmount)
 	if err != nil {
 		toAmt = decimal.Zero
@@ -153,7 +143,7 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error)
 		gas = qr.Tx.Gas
 	}
 
-	minAmount := toAmt.Mul(decimal.NewFromInt(995)).Div(decimal.NewFromInt(1000))
+	minAmount := toAmt.Mul(decimal.NewFromFloat(1 - req.Slippage))
 
 	route := []domain.RouteStep{
 		{
@@ -163,10 +153,10 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error)
 		},
 	}
 
-	return &domain.Quote{
-		ID:          "1inch-" + qr.DstAmount + "-" + qr.SrcAmount,
-		FromToken:   mapToken(qr.FromToken, req.FromToken.ChainID),
-		ToToken:     mapToken(qr.ToToken, req.ToToken.ChainID),
+	quote := &domain.Quote{
+		ID:          "1inch-" + qr.DstAmount + "-" + fromAmt.String(),
+		FromToken:   mapToken(qr.SrcToken, req.FromToken.ChainID),
+		ToToken:     mapToken(qr.DstToken, req.ToToken.ChainID),
 		FromAmount:  fromAmt,
 		ToAmount:    toAmt,
 		MinAmount:   minAmount,
@@ -178,7 +168,18 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error)
 		TxData:      txData,
 		TxValue:     txValue,
 		EstimateGas: gas,
-	}, nil
+	}
+
+	// Populate ApprovalAddress using the router address (Tx.To) as the ERC-20
+	// approve spender. The /quote endpoint does not return a dedicated
+	// approvalAddress field, so we infer it from the router target.
+	if qr.Tx.To != "" && req.FromToken.Address != "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE" {
+		quote.ApprovalAddress = qr.Tx.To
+		allowance := fromAmt
+		quote.AllowanceNeeded = &allowance
+	}
+
+	return quote, nil
 }
 
 func mapToken(t TokenInfo, chainID domain.ChainID) domain.Token {

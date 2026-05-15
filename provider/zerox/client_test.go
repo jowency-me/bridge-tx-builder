@@ -158,3 +158,89 @@ func TestClient_Status_TransportError(t *testing.T) {
 	_, err := c.Status(ctx, "0xtxhash")
 	require.Error(t, err)
 }
+
+func TestClient_Quote_JSONDeserialization(t *testing.T) {
+	// Captured 2026-05-15 from real 0x v2 API (ETH -> USDC on Ethereum).
+	rawJSON := `{
+		"buyAmount": "2250449255",
+		"sellAmount": "1000000000000000000",
+		"minBuyAmount": "2239196968",
+		"buyToken": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+		"sellToken": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+		"allowanceTarget": "0x0000000000001ff3684f28c67538d4d072c22734",
+		"route": {
+			"fills": [
+				{
+					"from": "0x22e61ef9a8c4c704e52c55758b1043d256c640e2",
+					"to": "0x68b3465833fb72a70ecdf485e0e4c7bd8665fc45",
+					"source": "Uniswap_V3",
+					"proportionBps": "8500"
+				},
+				{
+					"from": "0x22e61ef9a8c4c704e52c55758b1043d256c640e2",
+					"to": "0x68b3465833fb72a70ecdf485e0e4c7bd8665fc45",
+					"source": "PancakeSwap_V3",
+					"proportionBps": "1500"
+				}
+			]
+		},
+		"fees": {
+			"zeroExFee": {
+				"amount": "3380754",
+				"token": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+				"type": "volume"
+			}
+		},
+		"transaction": {
+			"to": "0x0000000000a39bb272e79075ade125ef35e4417f",
+			"data": "0xd9627aa400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000deadbeef",
+			"value": "1000000000000000000",
+			"gas": "385504",
+			"gasPrice": "197715688"
+		}
+	}`
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(rawJSON))
+	}))
+	defer server.Close()
+
+	c := NewClient("test-key")
+	c.baseURL = server.URL
+
+	resp, err := c.Quote(context.Background(), QuoteParams{
+		ChainID:    "1",
+		SellToken:  "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
+		BuyToken:   "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+		SellAmount: "1000000000000000000",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+
+	require.Equal(t, "2250449255", resp.BuyAmount)
+	require.Equal(t, "1000000000000000000", resp.SellAmount)
+	require.Equal(t, "2239196968", resp.MinBuyAmount)
+	require.Equal(t, "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", resp.BuyToken)
+	require.Equal(t, "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", resp.SellToken)
+	require.Equal(t, "0x0000000000001ff3684f28c67538d4d072c22734", resp.AllowanceTarget)
+
+	require.Len(t, resp.Route.Fills, 2)
+	require.Equal(t, "Uniswap_V3", resp.Route.Fills[0].Source)
+	require.Equal(t, "8500", resp.Route.Fills[0].Proportion)
+	require.Equal(t, "0x22e61ef9a8c4c704e52c55758b1043d256c640e2", resp.Route.Fills[0].From)
+	require.Equal(t, "0x68b3465833fb72a70ecdf485e0e4c7bd8665fc45", resp.Route.Fills[0].To)
+	require.Equal(t, "PancakeSwap_V3", resp.Route.Fills[1].Source)
+	require.Equal(t, "1500", resp.Route.Fills[1].Proportion)
+
+	require.NotNil(t, resp.Fees.ZeroExFee)
+	require.Equal(t, "3380754", resp.Fees.ZeroExFee.Amount)
+	require.Equal(t, "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", resp.Fees.ZeroExFee.Token)
+	require.Equal(t, "volume", resp.Fees.ZeroExFee.Type)
+
+	require.Equal(t, "0x0000000000a39bb272e79075ade125ef35e4417f", resp.Transaction.To)
+	require.NotEmpty(t, resp.Transaction.Data)
+	require.Equal(t, "1000000000000000000", resp.Transaction.Value)
+	require.Equal(t, "385504", resp.Transaction.Gas)
+	require.Equal(t, "197715688", resp.Transaction.GasPrice)
+}

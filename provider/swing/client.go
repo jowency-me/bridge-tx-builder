@@ -1,4 +1,10 @@
 // Package swing provides a quote adapter for the Swing.xyz cross-chain bridge.
+//
+// API Reference:
+//
+//	Quote: https://docs.swing.xyz/v3/reference
+//	Status: https://docs.swing.xyz/v3/reference
+//	API version: v3 (verified 2026-05-15)
 package swing
 
 import (
@@ -7,6 +13,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 )
 
@@ -34,10 +41,13 @@ type QuoteParams struct {
 	ToChain         string
 	FromToken       string
 	ToToken         string
+	TokenSymbol     string
+	ToTokenSymbol   string
 	FromAmount      string
 	FromUserAddress string
 	ToUserAddress   string
 	Slippage        string
+	ID              float64
 }
 
 // TokenInfo contains provider token metadata.
@@ -128,10 +138,19 @@ func (c *Client) Quote(ctx context.Context, params QuoteParams) (*QuoteResponse,
 	q.Set("toChain", params.ToChain)
 	q.Set("fromTokenAddress", params.FromToken)
 	q.Set("toTokenAddress", params.ToToken)
+	if params.TokenSymbol != "" {
+		q.Set("tokenSymbol", params.TokenSymbol)
+	}
+	if params.ToTokenSymbol != "" {
+		q.Set("toTokenSymbol", params.ToTokenSymbol)
+	}
 	q.Set("tokenAmount", params.FromAmount)
 	q.Set("fromUserAddress", params.FromUserAddress)
 	q.Set("toUserAddress", params.ToUserAddress)
 	q.Set("maxSlippage", params.Slippage)
+	if params.ID != 0 {
+		q.Set("id", strconv.FormatFloat(params.ID, 'f', -1, 64))
+	}
 	u.RawQuery = q.Encode()
 
 	hReq, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)

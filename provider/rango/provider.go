@@ -14,7 +14,7 @@ import (
 
 type client interface {
 	Quote(ctx context.Context, params QuoteParams) (*QuoteResponse, error)
-	Status(ctx context.Context, txID string) (*StatusResponse, error)
+	Status(ctx context.Context, txID string, statusParams ...StatusParams) (*StatusResponse, error)
 }
 
 // Provider adapts the rango API to the domain provider interface.
@@ -28,6 +28,7 @@ var chainCodes = map[domain.ChainID]string{
 	domain.ChainBSC:       "BSC",
 	domain.ChainBase:      "BASE",
 	domain.ChainBitcoin:   "BTC",
+	domain.ChainCosmos:    "COSMOS",
 	domain.ChainEthereum:  "ETH",
 	domain.ChainOptimism:  "OPTIMISM",
 	domain.ChainPolygon:   "POLYGON",
@@ -110,38 +111,102 @@ func (p *Provider) Status(ctx context.Context, txID string) (*domain.Status, err
 	if err != nil {
 		return nil, err
 	}
-	return &domain.Status{
-		TxID:  sr.RequestID,
-		State: sr.Status,
-	}, nil
+	return mapStatus(sr, txID), nil
 }
 
 func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error) {
 	if qr == nil {
 		return nil, fmt.Errorf("%s: empty quote response", Name)
 	}
-	toAmt, err := decimal.NewFromString(qr.OutputAmount)
+	outputAmount := qr.Route.OutputAmount
+	toAmt, err := decimal.NewFromString(outputAmount)
 	if err != nil {
 		toAmt = decimal.Zero
 	}
-	route := make([]domain.RouteStep, 0, len(qr.Swaps))
-	for _, s := range qr.Swaps {
+
+	var minAmt decimal.Decimal
+	if qr.Route.OutputAmountMin != "" {
+		parsed, pErr := decimal.NewFromString(qr.Route.OutputAmountMin)
+		if pErr == nil && parsed.IsPositive() {
+			minAmt = parsed
+		}
+	}
+	if minAmt.IsZero() {
+		minAmt = toAmt.Mul(decimal.NewFromFloat(1 - req.Slippage))
+	}
+
+	var estFee decimal.Decimal
+	for _, f := range qr.Route.Fee {
+		if f.Amount != "" {
+			amt, err := decimal.NewFromString(f.Amount)
+			if err == nil {
+				estFee = estFee.Add(amt)
+			}
+		}
+	}
+
+	route := make([]domain.RouteStep, 0, len(qr.Route.Path))
+	for _, p := range qr.Route.Path {
+		chainID := domain.ChainID(strings.ToLower(p.From.Blockchain))
+		if chainID == "" {
+			chainID = req.FromToken.ChainID
+		}
 		route = append(route, domain.RouteStep{
-			ChainID:  domain.ChainID(strings.ToLower(s.From.Blockchain)),
-			Protocol: s.SwapperID,
+			ChainID:  chainID,
+			Protocol: p.Swapper.ID,
 			Action:   "swap",
 		})
 	}
+
+	// LIMITATION: Rango quote endpoint does not return transaction execution data.
+	// The /basic/swap endpoint is needed to get tx.to, tx.data, tx.value, tx.approveTo.
+	// This quote is valid for rate comparison but cannot build transactions directly.
 	return &domain.Quote{
-		ID:         qr.RequestID,
-		FromToken:  req.FromToken,
-		ToToken:    req.ToToken,
-		FromAmount: req.Amount,
-		ToAmount:   toAmt,
-		MinAmount:  toAmt.Mul(decimal.NewFromInt(995)).Div(decimal.NewFromInt(1000)),
-		Slippage:   req.Slippage,
-		Provider:   string(Name),
-		Route:      route,
-		Deadline:   time.Now().Add(10 * time.Minute),
+		ID:          qr.RequestID,
+		FromToken:   mapToken(qr.Route.From, req.FromToken.ChainID),
+		ToToken:     mapToken(qr.Route.To, req.ToToken.ChainID),
+		FromAmount:  req.Amount,
+		ToAmount:    toAmt,
+		MinAmount:   minAmt,
+		Slippage:    req.Slippage,
+		Provider:    string(Name),
+		Route:       route,
+		Deadline:    time.Now().Add(time.Duration(qr.Route.EstimatedTimeInSeconds) * time.Second),
+		EstimateFee: estFee,
 	}, nil
+}
+
+func mapStatus(sr *StatusResponse, txID string) *domain.Status {
+	if sr == nil {
+		return &domain.Status{TxID: txID, State: "unknown"}
+	}
+	state := sr.Status
+	if state == "" {
+		state = "unknown"
+	}
+	var srcTx, dstTx string
+	if sr.BridgeData != nil {
+		srcTx = sr.BridgeData.SrcTxHash
+		dstTx = sr.BridgeData.DestTxHash
+	}
+	return &domain.Status{
+		TxID:       txID,
+		State:      state,
+		SrcChainTx: srcTx,
+		DstChainTx: dstTx,
+		Error:      sr.Error,
+	}
+}
+
+func mapToken(t TokenInfo, fallbackChainID domain.ChainID) domain.Token {
+	chainID := domain.ChainID(strings.ToLower(t.Blockchain))
+	if chainID == "" {
+		chainID = fallbackChainID
+	}
+	return domain.Token{
+		Symbol:   t.Symbol,
+		Address:  t.Address,
+		Decimals: t.Decimals,
+		ChainID:  chainID,
+	}
 }

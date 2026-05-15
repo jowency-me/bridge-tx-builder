@@ -90,6 +90,8 @@ func (p *Provider) Quote(ctx context.Context, req domain.QuoteRequest) (*domain.
 		ToChain:         toCode,
 		FromToken:       req.FromToken.Address,
 		ToToken:         req.ToToken.Address,
+		TokenSymbol:     req.FromToken.Symbol,
+		ToTokenSymbol:   req.ToToken.Symbol,
 		FromAmount:      req.Amount.String(),
 		FromUserAddress: req.FromAddr,
 		ToUserAddress:   req.ToAddr,
@@ -125,7 +127,15 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error)
 	if err != nil {
 		toAmt = decimal.Zero
 	}
-	minAmt := toAmt.Mul(decimal.NewFromInt(995)).Div(decimal.NewFromInt(1000))
+	minAmt := toAmt.Mul(decimal.NewFromFloat(1 - req.Slippage))
+
+	var estFee decimal.Decimal
+	if routeInfo.Quote.BridgeFee != "" {
+		f, err := decimal.NewFromString(routeInfo.Quote.BridgeFee)
+		if err == nil {
+			estFee = f
+		}
+	}
 
 	var gas uint64
 	if routeInfo.Gas != "" {
@@ -149,6 +159,18 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error)
 		})
 	}
 
+	// LIMITATION (H-03): Swing /transfer/quote does NOT return transaction execution data.
+	//
+	// The quote endpoint provides route metadata and output amounts, but the fields needed to
+	// actually build and submit a transaction (To, TxData, TxValue) are NOT populated here.
+	// Swing requires a separate POST to /transfer/build-tx to obtain the on-chain transaction
+	// payload. That call is not yet implemented in this provider.
+	//
+	// Consequences:
+	//   - Quote.To is empty, Quote.TxData is nil, Quote.TxValue is zero.
+	//   - This quote is valid for rate comparison (Quote.Validate only requires ToAmount > 0).
+	//   - Downstream consumers that need to build transactions must call /transfer/build-tx
+	//     separately or handle the missing execution fields gracefully.
 	return &domain.Quote{
 		ID:          routeInfo.Quote.Integration + "-" + routeInfo.Quote.Type,
 		FromToken:   req.FromToken,
@@ -161,6 +183,7 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error)
 		Route:       route,
 		Deadline:    time.Now().Add(time.Duration(routeInfo.Duration) * time.Second),
 		EstimateGas: gas,
+		EstimateFee: estFee,
 	}, nil
 }
 

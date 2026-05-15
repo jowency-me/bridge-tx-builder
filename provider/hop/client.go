@@ -1,3 +1,9 @@
+// Package hop provides a quote adapter for the Hop Protocol cross-chain bridge.
+//
+// API Reference:
+//
+//	Quote: https://docs.hop.exchange/v/developer-docs/developers/api
+//	API version: v1 (verified 2026-05-15)
 package hop
 
 import (
@@ -6,6 +12,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 )
 
@@ -31,15 +38,20 @@ type QuoteParams struct {
 	ToChain   string
 	Token     string
 	Amount    string
+	Slippage  float64
 }
 
 // QuoteResponse is the raw JSON response from Hop quote endpoint.
 type QuoteResponse struct {
-	AmountOut              string `json:"amountOut"`
-	Bridge                 string `json:"bridge"`
-	EstimatedRecipientTime int    `json:"estimatedRecipientTime"`
-	Fee                    string `json:"fee"`
-	Slippage               string `json:"slippage"`
+	AmountIn                string  `json:"amountIn"`
+	EstimatedReceived       string  `json:"estimatedRecieved"`
+	AmountOutMin            string  `json:"amountOutMin"`
+	DestinationAmountOutMin string  `json:"destinationAmountOutMin"`
+	BonderFee               string  `json:"bonderFee"`
+	Bridge                  string  `json:"bridge"`
+	Deadline                int64   `json:"deadline"`
+	DestinationDeadline     int64   `json:"destinationDeadline"`
+	Slippage                float64 `json:"slippage"`
 }
 
 // StatusResponse is not supported by Hop.
@@ -58,6 +70,9 @@ func (c *Client) Quote(ctx context.Context, params QuoteParams) (*QuoteResponse,
 	q.Set("toChain", params.ToChain)
 	q.Set("token", params.Token)
 	q.Set("amount", params.Amount)
+	if params.Slippage > 0 {
+		q.Set("slippage", strconv.FormatFloat(params.Slippage*100, 'f', -1, 64))
+	}
 	u.RawQuery = q.Encode()
 
 	hReq, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)

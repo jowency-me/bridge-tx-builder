@@ -3,6 +3,7 @@ package celer
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -30,10 +31,10 @@ func (m *mockClient) Status(ctx context.Context, txID string) (*StatusResponse, 
 func TestProvider_Quote_Success(t *testing.T) {
 	mock := &mockClient{
 		quoteResp: &QuoteResponse{
-			Value:             "999000",
+			EqValueTokenAmt:   "999000",
 			PercFee:           "500",
 			BaseFee:           "500",
-			SlippageTolerance: 50,
+			SlippageTolerance: 5000,
 		},
 	}
 
@@ -57,6 +58,14 @@ func TestProvider_Quote_Success(t *testing.T) {
 	assert.Equal(t, int64(500), quote.EstimateFee.IntPart())
 	assert.Equal(t, 1, len(quote.Route))
 	assert.Equal(t, "bridge", quote.Route[0].Action)
+	// Verify slippage from response (5000 / 1e6 = 0.005)
+	assert.Equal(t, 0.005, quote.Slippage)
+	// Verify MinAmount is computed (0.995 * ToAmount)
+	assert.True(t, quote.MinAmount.IsPositive())
+	assert.True(t, quote.MinAmount.LessThan(quote.ToAmount))
+	// Verify token chain IDs preserved
+	assert.Equal(t, domain.ChainEthereum, quote.FromToken.ChainID)
+	assert.Equal(t, domain.ChainBase, quote.ToToken.ChainID)
 }
 
 func TestProvider_Quote_HTTPError(t *testing.T) {
@@ -154,9 +163,9 @@ func TestProvider_Quote_EmptyQuoteResponse(t *testing.T) {
 func TestProvider_Quote_InvalidToAmount(t *testing.T) {
 	mock := &mockClient{
 		quoteResp: &QuoteResponse{
-			Value:             "not-a-number",
+			EqValueTokenAmt:   "not-a-number",
 			PercFee:           "500",
-			SlippageTolerance: 50,
+			SlippageTolerance: 5000,
 		},
 	}
 	p := &Provider{client: mock}
@@ -178,9 +187,9 @@ func TestProvider_Quote_InvalidToAmount(t *testing.T) {
 func TestProvider_Quote_EmptyPercFee(t *testing.T) {
 	mock := &mockClient{
 		quoteResp: &QuoteResponse{
-			Value:             "999000",
+			EqValueTokenAmt:   "999000",
 			PercFee:           "",
-			SlippageTolerance: 50,
+			SlippageTolerance: 5000,
 		},
 	}
 	p := &Provider{client: mock}
@@ -202,9 +211,9 @@ func TestProvider_Quote_EmptyPercFee(t *testing.T) {
 func TestProvider_Quote_InvalidPercFee(t *testing.T) {
 	mock := &mockClient{
 		quoteResp: &QuoteResponse{
-			Value:             "999000",
+			EqValueTokenAmt:   "999000",
 			PercFee:           "not-a-number",
-			SlippageTolerance: 50,
+			SlippageTolerance: 5000,
 		},
 	}
 	p := &Provider{client: mock}
@@ -226,7 +235,7 @@ func TestProvider_Quote_InvalidPercFee(t *testing.T) {
 func TestProvider_Quote_ZeroSlippageTolerance(t *testing.T) {
 	mock := &mockClient{
 		quoteResp: &QuoteResponse{
-			Value:             "999000",
+			EqValueTokenAmt:   "999000",
 			PercFee:           "500",
 			SlippageTolerance: 0,
 		},
@@ -250,9 +259,9 @@ func TestProvider_Quote_ZeroSlippageTolerance(t *testing.T) {
 func TestProvider_Quote_NonZeroSlippageTolerance(t *testing.T) {
 	mock := &mockClient{
 		quoteResp: &QuoteResponse{
-			Value:             "999000",
+			EqValueTokenAmt:   "999000",
 			PercFee:           "500",
-			SlippageTolerance: 100,
+			SlippageTolerance: 10000,
 		},
 	}
 	p := &Provider{client: mock}
@@ -294,4 +303,90 @@ func TestProvider_Quote_RequestValidationError(t *testing.T) {
 
 	_, err := p.Quote(ctx, req)
 	require.Error(t, err)
+}
+
+// TestProvider_Quote_SlippageSentToAPI verifies that slippage is correctly
+// converted from decimal (0.005) to millionths (5000) and sent to the API.
+// This is a regression test for C-01: slippage was never passed to the API.
+func TestProvider_Quote_SlippageSentToAPI(t *testing.T) {
+	var receivedSlippage string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedSlippage = r.URL.Query().Get("slippage_tolerance")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"eq_value_token_amt":"999000","perc_fee":"500","base_fee":"100","slippage_tolerance":5000}`))
+	}))
+	defer srv.Close()
+
+	p := NewProvider(WithBaseURL(srv.URL))
+	ctx := context.Background()
+
+	// 0.5% slippage = 0.005 in decimal = 5000 in millionths (1e6)
+	req := domain.QuoteRequest{
+		FromToken: domain.Token{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: domain.ChainEthereum},
+		ToToken:   domain.Token{Symbol: "USDT", Address: "0xB", Decimals: 6, ChainID: domain.ChainBase},
+		Amount:    decimal.NewFromInt(1_000_000),
+		Slippage:  0.005,
+		FromAddr:  "0xFrom",
+		ToAddr:    "0xTo",
+	}
+
+	quote, err := p.Quote(ctx, req)
+	require.NoError(t, err)
+	require.NotNil(t, quote)
+	assert.Equal(t, "5000", receivedSlippage, "slippage_tolerance should be 5000 (0.005 * 1e6) for 0.5%%")
+}
+
+// TestProvider_Quote_SlippageOnePercent verifies 1% slippage = 10000 millionths.
+func TestProvider_Quote_SlippageOnePercent(t *testing.T) {
+	var receivedSlippage string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedSlippage = r.URL.Query().Get("slippage_tolerance")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"eq_value_token_amt":"999000","perc_fee":"500","base_fee":"100","slippage_tolerance":10000}`))
+	}))
+	defer srv.Close()
+
+	p := NewProvider(WithBaseURL(srv.URL))
+	ctx := context.Background()
+
+	// 1% slippage = 0.01 in decimal = 10000 in millionths (1e6)
+	req := domain.QuoteRequest{
+		FromToken: domain.Token{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: domain.ChainEthereum},
+		ToToken:   domain.Token{Symbol: "USDT", Address: "0xB", Decimals: 6, ChainID: domain.ChainBase},
+		Amount:    decimal.NewFromInt(1_000_000),
+		Slippage:  0.01,
+		FromAddr:  "0xFrom",
+		ToAddr:    "0xTo",
+	}
+
+	quote, err := p.Quote(ctx, req)
+	require.NoError(t, err)
+	require.NotNil(t, quote)
+	assert.Equal(t, "10000", receivedSlippage, "slippage_tolerance should be 10000 (0.01 * 1e6) for 1%%")
+}
+
+func TestProvider_Quote_SlippageBasedMinAmount(t *testing.T) {
+	mock := &mockClient{
+		quoteResp: &QuoteResponse{
+			EqValueTokenAmt:   "1000000",
+			PercFee:           "0.001",
+			SlippageTolerance: 50000,
+		},
+	}
+	p := &Provider{client: mock}
+	ctx := context.Background()
+
+	req := domain.QuoteRequest{
+		FromToken: domain.Token{Symbol: "USDC", Address: "0xA", Decimals: 6, ChainID: domain.ChainEthereum},
+		ToToken:   domain.Token{Symbol: "USDT", Address: "0xB", Decimals: 6, ChainID: domain.ChainBase},
+		Amount:    decimal.NewFromInt(1_000_000),
+		Slippage:  0.05,
+		FromAddr:  "0xFrom",
+		ToAddr:    "0xTo",
+	}
+	quote, err := p.Quote(ctx, req)
+	require.NoError(t, err)
+	// SlippageTolerance=50000 means 0.05 fraction, so MinAmount = 1000000 * (1 - 0.05) = 950000
+	expected := decimal.NewFromInt(950_000)
+	assert.True(t, quote.MinAmount.Equal(expected), "expected %s got %s", expected, quote.MinAmount)
 }

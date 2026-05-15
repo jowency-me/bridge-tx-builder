@@ -170,9 +170,9 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest, fromChain, toChain str
 		slippage = req.Slippage
 	}
 
-	minAmount := toAmt.Sub(feeAmt)
+	minAmount := toAmt.Mul(decimal.NewFromFloat(1 - slippage))
 	if minAmount.IsNegative() || minAmount.IsZero() {
-		minAmount = toAmt.Mul(decimal.NewFromInt(995)).Div(decimal.NewFromInt(1000))
+		minAmount = toAmt.Mul(decimal.NewFromFloat(1 - req.Slippage))
 	}
 
 	var deadline time.Time
@@ -195,7 +195,14 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest, fromChain, toChain str
 		},
 	}
 
-	return &domain.Quote{
+	// M-05: THORChain deposits use InboundAddress + Memo.
+	// For EVM chains the memo goes as calldata data.
+	var txData []byte
+	if qr.Memo != "" {
+		txData = []byte(qr.Memo)
+	}
+
+	quote := &domain.Quote{
 		ID:          fmt.Sprintf("thorchain-%s-%s", qr.Memo, qr.ExpectedAmountOut),
 		FromToken:   req.FromToken,
 		ToToken:     req.ToToken,
@@ -207,8 +214,20 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest, fromChain, toChain str
 		Route:       route,
 		Deadline:    deadline,
 		To:          qr.InboundAddress,
+		TxData:      txData,
 		EstimateFee: feeAmt,
-	}, nil
+	}
+
+	// ERC-20 deposits require approval to the vault inbound address.
+	fromAddr := strings.ToLower(req.FromToken.Address)
+	if qr.InboundAddress != "" && fromAddr != "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" &&
+		fromAddr != "0x0000000000000000000000000000000000000000" {
+		quote.ApprovalAddress = qr.InboundAddress
+		allowance := fromAmt
+		quote.AllowanceNeeded = &allowance
+	}
+
+	return quote, nil
 }
 
 func mapStatus(sr *StatusResponse, txID string) *domain.Status {
@@ -216,18 +235,22 @@ func mapStatus(sr *StatusResponse, txID string) *domain.Status {
 		return &domain.Status{TxID: txID, State: "unknown"}
 	}
 	state := "pending"
-	if sr.Tx.Status != "" {
-		state = sr.Tx.Status
-	} else if sr.Stages.OutboundSigned.Completed {
+	if sr.Stages.InboundFinalised.Completed && sr.Stages.SwapFinalised.Completed && !sr.Stages.SwapStatus.Pending {
 		state = "completed"
-	} else if sr.Stages.SwapStatus.Completed {
-		state = "completed"
+	} else if sr.Stages.InboundFinalised.Completed {
+		state = "executing"
+	}
+
+	var dstChainTx string
+	if len(sr.OutTxs) > 0 && sr.OutTxs[0].ID != "" && sr.OutTxs[0].ID != "0000000000000000000000000000000000000000000000000000000000000000" {
+		dstChainTx = sr.OutTxs[0].ID
 	}
 
 	return &domain.Status{
 		TxID:       txID,
 		State:      state,
 		SrcChainTx: sr.Tx.ID,
+		DstChainTx: dstChainTx,
 		UpdatedAt:  time.Now(),
 	}
 }

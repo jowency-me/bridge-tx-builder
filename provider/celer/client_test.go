@@ -2,7 +2,6 @@ package celer
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -28,7 +27,7 @@ func TestClient_Quote(t *testing.T) {
 		t.Skipf("real API unavailable: %v", err)
 	}
 	require.NotNil(t, resp)
-	require.NotEmpty(t, resp.Value)
+	require.NotEmpty(t, resp.EqValueTokenAmt)
 }
 
 func TestClient_Status(t *testing.T) {
@@ -43,19 +42,17 @@ func TestClient_Status(t *testing.T) {
 
 func TestClient_Quote_Success(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "POST", r.Method)
+		require.Equal(t, "GET", r.Method)
 		require.Equal(t, "application/json", r.Header.Get("Content-Type"))
 
-		var body map[string]interface{}
-		err := json.NewDecoder(r.Body).Decode(&body)
-		require.NoError(t, err)
-		require.Equal(t, "1", body["src_chain_id"])
-		require.Equal(t, "8453", body["dst_chain_id"])
-		require.Equal(t, "USDC", body["token_symbol"])
-		require.Equal(t, "1000000", body["amt"])
+		q := r.URL.Query()
+		require.Equal(t, "1", q.Get("src_chain_id"))
+		require.Equal(t, "8453", q.Get("dst_chain_id"))
+		require.Equal(t, "USDC", q.Get("token_symbol"))
+		require.Equal(t, "1000000", q.Get("amt"))
 
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"value":"999000","percFee":"500","baseFee":"100","slippageTolerance":50}`))
+		_, _ = w.Write([]byte(`{"eq_value_token_amt":"999000","perc_fee":"500","base_fee":"100","slippage_tolerance":50}`))
 	}))
 	defer ts.Close()
 
@@ -73,7 +70,7 @@ func TestClient_Quote_Success(t *testing.T) {
 	resp, err := c.Quote(ctx, params)
 	require.NoError(t, err)
 	require.NotNil(t, resp)
-	require.Equal(t, "999000", resp.Value)
+	require.Equal(t, "999000", resp.EqValueTokenAmt)
 	require.Equal(t, "500", resp.PercFee)
 	require.Equal(t, 50, resp.SlippageTolerance)
 }
@@ -181,18 +178,68 @@ func TestClient_Quote_WithContextCancel(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestClient_Quote_JSONDeserialization(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{
+			"err": null,
+			"eq_value_token_amt": "995000",
+			"bridge_rate": 0.995,
+			"perc_fee": "500",
+			"base_fee": "0",
+			"slippage_tolerance": 5000,
+			"max_slippage": 5000,
+			"estimated_receive_amt": "990000",
+			"drop_gas_amt": "0",
+			"op_fee_rebate": 0,
+			"op_fee_rebate_portion": 0,
+			"op_fee_rebate_end_time": "0"
+		}`))
+	}))
+	defer ts.Close()
+
+	c := NewClientWithBaseURL(ts.URL)
+	params := QuoteParams{
+		SrcChainID:  "1",
+		DstChainID:  "8453",
+		TokenSymbol: "USDC",
+		Amt:         "1000000",
+		UsrAddr:     "0x1234567890123456789012345678901234567890",
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	resp, err := c.Quote(ctx, params)
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.Nil(t, resp.Err)
+	require.Equal(t, "995000", resp.EqValueTokenAmt)
+	require.InDelta(t, 0.995, resp.BridgeRate, 0.0001)
+	require.Equal(t, "500", resp.PercFee)
+	require.Equal(t, "0", resp.BaseFee)
+	require.Equal(t, 5000, resp.SlippageTolerance)
+	require.Equal(t, 5000, resp.MaxSlippage)
+	require.Equal(t, "990000", resp.EstimatedReceiveAmt)
+	require.Equal(t, "0", resp.DropGasAmt)
+	require.InDelta(t, 0, resp.OpFeeRebate, 0.0001)
+	require.InDelta(t, 0, resp.OpFeeRebatePortion, 0.0001)
+	require.Equal(t, "0", resp.OpFeeRebateEndTime)
+}
+
 func TestClient_Quote_RequestConstruction(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Verify all headers and body
-		require.Equal(t, "POST", r.Method)
+		// Verify all headers and query params
+		require.Equal(t, "GET", r.Method)
 		require.Equal(t, "application/json", r.Header.Get("Content-Type"))
 
-		var body map[string]interface{}
-		err := json.NewDecoder(r.Body).Decode(&body)
-		require.NoError(t, err)
+		q := r.URL.Query()
+		require.Equal(t, "42161", q.Get("src_chain_id"))
+		require.Equal(t, "10", q.Get("dst_chain_id"))
+		require.Equal(t, "USDT", q.Get("token_symbol"))
+		require.Equal(t, "5000000", q.Get("amt"))
 
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"value":"500000","percFee":"100","baseFee":"50","slippageTolerance":30}`))
+		_, _ = w.Write([]byte(`{"eq_value_token_amt":"500000","perc_fee":"100","base_fee":"50","slippage_tolerance":30}`))
 	}))
 	defer ts.Close()
 
@@ -209,7 +256,7 @@ func TestClient_Quote_RequestConstruction(t *testing.T) {
 
 	resp, err := c.Quote(ctx, params)
 	require.NoError(t, err)
-	require.Equal(t, "500000", resp.Value)
+	require.Equal(t, "500000", resp.EqValueTokenAmt)
 	require.Equal(t, "100", resp.PercFee)
 	require.Equal(t, 30, resp.SlippageTolerance)
 }

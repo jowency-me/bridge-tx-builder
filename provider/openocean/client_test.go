@@ -107,8 +107,8 @@ func TestClient_Quote_APICodeError(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(QuoteResponse{
-			Code:     400,
-			ErrorMsg: "insufficient liquidity",
+			Code:    400,
+			Message: "insufficient liquidity",
 		})
 	}))
 	defer server.Close()
@@ -176,4 +176,104 @@ func TestClient_Status_DecodeError(t *testing.T) {
 
 	_, err := c.Status(ctx, "0xtxhash")
 	require.Error(t, err)
+}
+
+func TestClient_Quote_JSONDeserialization(t *testing.T) {
+	// Verify all QuoteResponse/QuoteData fields are correctly deserialized from raw JSON.
+	// Real API response from https://open-api.openocean.finance/v3/eth/swap_quote
+	// (simplified to only struct-captured fields; real response also includes inToken.name / outToken.name).
+	// estimatedGas is json.Number since the API returns it as a numeric value, not a string.
+	raw := []byte(`{
+		"code": 200,
+		"data": {
+			"inToken": {
+				"address": "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
+				"decimals": 18,
+				"symbol": "ETH"
+			},
+			"outToken": {
+				"address": "0xA0B86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+				"decimals": 6,
+				"symbol": "USDC"
+			},
+			"inAmount": "1000000000000000000000000000000000000",
+			"outAmount": "124677904122952",
+			"estimatedGas": 15439066,
+			"to": "0x6352a56caadC4F1E25CD6c75970Fa768A3304e64",
+			"data": "0x1234567890abcdef",
+			"value": "1000000000000000000000000000000000000"
+		}
+	}`)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(raw)
+	}))
+	defer server.Close()
+
+	c := NewClient()
+	c.baseURL = server.URL
+
+	resp, err := c.Quote(context.Background(), QuoteParams{
+		ChainCode:       "eth",
+		InTokenAddress:  "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
+		OutTokenAddress: "0xA0B86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+		Amount:          "1000000000000000000000000000000000000",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+
+	// Top-level fields
+	require.Equal(t, 200, resp.Code)
+	require.NotNil(t, resp.Data)
+
+	// Data fields
+	require.Equal(t, "0x6352a56caadC4F1E25CD6c75970Fa768A3304e64", resp.Data.To)
+	require.Equal(t, "0x1234567890abcdef", resp.Data.Data)
+	require.Equal(t, "1000000000000000000000000000000000000", resp.Data.Value)
+	require.Equal(t, "124677904122952", resp.Data.OutAmount)
+	require.Equal(t, json.Number("15439066"), resp.Data.EstimatedGas)
+	require.Equal(t, uint64(15439066), resp.Data.EstimatedGasUint())
+
+	// Token fields
+	require.Equal(t, "ETH", resp.Data.InToken.Symbol)
+	require.Equal(t, "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE", resp.Data.InToken.Address)
+	require.Equal(t, 18, resp.Data.InToken.Decimals)
+	require.Equal(t, "USDC", resp.Data.OutToken.Symbol)
+	require.Equal(t, "0xA0B86991c6218b36c1d19D4a2e9Eb0cE3606eB48", resp.Data.OutToken.Address)
+	require.Equal(t, 6, resp.Data.OutToken.Decimals)
+	require.Equal(t, "1000000000000000000000000000000000000", resp.Data.InAmount)
+}
+
+func TestClient_Quote_JSONDeserialization_StringEstimatedGas(t *testing.T) {
+	// Some OpenOcean endpoints return estimatedGas as a quoted string.
+	raw := []byte(`{
+		"code": 200,
+		"message": "OK",
+		"data": {
+			"to": "0xRouter",
+			"data": "0x",
+			"value": "0",
+			"outAmount": "1000",
+			"estimatedGas": "250000",
+			"inToken": {"symbol": "USDC", "address": "0xA", "decimals": 6},
+			"outToken": {"symbol": "USDT", "address": "0xB", "decimals": 6},
+			"inAmount": "1000000"
+		}
+	}`)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(raw)
+	}))
+	defer server.Close()
+
+	c := NewClient()
+	c.baseURL = server.URL
+
+	resp, err := c.Quote(context.Background(), QuoteParams{ChainCode: "eth"})
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.Equal(t, json.Number("250000"), resp.Data.EstimatedGas)
+	require.Equal(t, uint64(250000), resp.Data.EstimatedGasUint())
 }

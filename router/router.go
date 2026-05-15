@@ -5,9 +5,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"strings"
 	"sync"
 
+	"github.com/jowency-me/bridge-tx-builder/builder/evm"
 	"github.com/jowency-me/bridge-tx-builder/domain"
 )
 
@@ -138,6 +140,39 @@ func (r *Router) BuildTransaction(ctx context.Context, quote domain.Quote, from 
 		return nil, fmt.Errorf("no builder registered for chain %q", chainID)
 	}
 	return builder.Build(ctx, quote, from, signer)
+}
+
+// ApprovalAction describes an ERC-20 approve() call that must be executed
+// before the associated swap/bridge transaction.
+type ApprovalAction struct {
+	TokenAddr string   // ERC-20 token contract address
+	Spender   string   // Address to approve (quote.ApprovalAddress)
+	Amount    *big.Int // Amount to approve
+	TxData    []byte   // Encoded approve(address,uint256) calldata
+	TxTo      string   // Token contract address (destination of the approve tx)
+}
+
+// EnsureApproval checks if an ERC-20 token approval is needed for the quote.
+// Returns nil if no approval is needed (native token or already populated).
+// The caller must sign and broadcast the approval transaction before calling BuildTransaction.
+func (r *Router) EnsureApproval(ctx context.Context, quote domain.Quote) (*ApprovalAction, error) {
+	if quote.ApprovalAddress == "" || quote.AllowanceNeeded == nil {
+		return nil, nil
+	}
+
+	amountBig := quote.AllowanceNeeded.BigInt()
+	calldata, err := evm.BuildApproveCallData(quote.ApprovalAddress, amountBig)
+	if err != nil {
+		return nil, fmt.Errorf("encode approve calldata: %w", err)
+	}
+
+	return &ApprovalAction{
+		TokenAddr: quote.FromToken.Address,
+		Spender:   quote.ApprovalAddress,
+		Amount:    amountBig,
+		TxData:    calldata,
+		TxTo:      quote.FromToken.Address,
+	}, nil
 }
 
 // Simulate dry-runs a transaction without broadcasting.

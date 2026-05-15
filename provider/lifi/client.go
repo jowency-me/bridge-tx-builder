@@ -1,4 +1,10 @@
 // Package lifi provides a quote adapter for the LI.FI cross-chain aggregation API.
+//
+// API Reference:
+//
+//	Quote: https://docs.li.fi/api-reference/get-a-quote-for-a-token-transfer
+//	Status: https://docs.li.fi/api-reference/transaction-status
+//	API version: v1 (verified 2026-05-15)
 package lifi
 
 import (
@@ -42,26 +48,68 @@ type QuoteParams struct {
 
 // QuoteResponse contains raw lifi quote response data.
 type QuoteResponse struct {
-	ID                 string    `json:"id"`
-	FromAmount         string    `json:"fromAmount"`
-	ToAmount           string    `json:"toAmount"`
-	Estimate           Estimate  `json:"estimate"`
-	Action             Action    `json:"action"`
-	IncludedSteps      []Step    `json:"includedSteps"`
-	TransactionRequest TxRequest `json:"transactionRequest"`
+	ID                 string     `json:"id"`
+	Type               string     `json:"type"`
+	Tool               string     `json:"tool"`
+	ToolDetails        ToolDetail `json:"toolDetails"`
+	Integrator         string     `json:"integrator"`
+	FromAmount         string     `json:"fromAmount"`
+	ToAmount           string     `json:"toAmount"`
+	Estimate           Estimate   `json:"estimate"`
+	Action             Action     `json:"action"`
+	IncludedSteps      []Step     `json:"includedSteps"`
+	TransactionRequest TxRequest  `json:"transactionRequest"`
+	TransactionID      string     `json:"transactionId"`
+}
+
+// ToolDetail contains provider tool metadata.
+type ToolDetail struct {
+	Key     string `json:"key"`
+	Name    string `json:"name"`
+	LogoURI string `json:"logoURI"`
 }
 
 // Estimate contains provider amount and gas estimates.
 type Estimate struct {
-	ToAmountMin string    `json:"toAmountMin"`
-	ToAmount    string    `json:"toAmount"`
-	FromAmount  string    `json:"fromAmount"`
-	GasCosts    []GasCost `json:"gasCosts"`
+	Tool              string    `json:"tool"`
+	ToAmountMin       string    `json:"toAmountMin"`
+	ToAmount          string    `json:"toAmount"`
+	FromAmount        string    `json:"fromAmount"`
+	FromAmountUSD     string    `json:"fromAmountUSD"`
+	ToAmountUSD       string    `json:"toAmountUSD"`
+	ApprovalAddress   string    `json:"approvalAddress"`
+	GasCosts          []GasCost `json:"gasCosts"`
+	FeeCosts          []FeeCost `json:"feeCosts"`
+	ExecutionDuration int       `json:"executionDuration"`
 }
 
 // GasCost contains a provider gas cost entry.
 type GasCost struct {
-	Estimate string `json:"estimate"`
+	Type      string    `json:"type"`
+	Price     string    `json:"price"`
+	Estimate  string    `json:"estimate"`
+	Limit     string    `json:"limit"`
+	Amount    string    `json:"amount"`
+	AmountUSD string    `json:"amountUSD"`
+	Token     TokenInfo `json:"token"`
+}
+
+// FeeCost contains a provider fee cost entry.
+type FeeCost struct {
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	Amount      string    `json:"amount"`
+	AmountUSD   string    `json:"amountUSD"`
+	Percentage  string    `json:"percentage"`
+	Included    bool      `json:"included"`
+	Token       TokenInfo `json:"token"`
+	FeeSplit    *FeeSplit `json:"feeSplit"`
+}
+
+// FeeSplit contains the fee distribution breakdown.
+type FeeSplit struct {
+	IntegratorFee string `json:"integratorFee"`
+	LifiFee       string `json:"lifiFee"`
 }
 
 // Action contains provider route action metadata.
@@ -71,34 +119,70 @@ type Action struct {
 	FromAmount  string    `json:"fromAmount"`
 	FromChainID int       `json:"fromChainId"`
 	ToChainID   int       `json:"toChainId"`
+	Slippage    float64   `json:"slippage"`
+	FromAddress string    `json:"fromAddress"`
+	ToAddress   string    `json:"toAddress"`
 }
 
 // TokenInfo contains provider token metadata.
 type TokenInfo struct {
-	Symbol   string `json:"symbol"`
-	Address  string `json:"address"`
-	Decimals int    `json:"decimals"`
+	Symbol                      string   `json:"symbol"`
+	Address                     string   `json:"address"`
+	Decimals                    int      `json:"decimals"`
+	ChainID                     int      `json:"chainId"`
+	Name                        string   `json:"name"`
+	CoinKey                     string   `json:"coinKey"`
+	PriceUSD                    string   `json:"priceUSD"`
+	LogoURI                     string   `json:"logoURI"`
+	Tags                        []string `json:"tags"`
+	VerificationStatus          string   `json:"verificationStatus"`
+	VerificationStatusBreakdown []any    `json:"verificationStatusBreakdown"`
 }
 
 // Step contains a provider route step.
 type Step struct {
-	Type string `json:"type"`
-	Tool string `json:"tool"`
+	ID          string     `json:"id"`
+	Type        string     `json:"type"`
+	Tool        string     `json:"tool"`
+	ToolDetails ToolDetail `json:"toolDetails"`
+	Action      StepAction `json:"action"`
+	Estimate    Estimate   `json:"estimate"`
+}
+
+// StepAction contains action data within an included step.
+type StepAction struct {
+	FromToken   TokenInfo `json:"fromToken"`
+	ToToken     TokenInfo `json:"toToken"`
+	FromAmount  string    `json:"fromAmount"`
+	FromChainID int       `json:"fromChainId"`
+	ToChainID   int       `json:"toChainId"`
+	FromAddress string    `json:"fromAddress"`
+	ToAddress   string    `json:"toAddress"`
+	Slippage    float64   `json:"slippage"`
 }
 
 // TxRequest contains provider transaction request data.
 type TxRequest struct {
+	From     string `json:"from"`
 	To       string `json:"to"`
 	Data     string `json:"data"`
 	Value    string `json:"value"`
+	ChainID  int    `json:"chainId"`
+	GasPrice string `json:"gasPrice"`
 	GasLimit string `json:"gasLimit"`
 }
 
 // StatusResponse contains raw lifi status response data.
 type StatusResponse struct {
-	Sending   TxInfo `json:"sending"`
-	Receiving TxInfo `json:"receiving"`
-	Status    string `json:"status"`
+	Sending          TxInfo `json:"sending"`
+	Receiving        TxInfo `json:"receiving"`
+	Status           string `json:"status"`
+	Substatus        string `json:"substatus"`
+	SubstatusMessage string `json:"substatusMessage"`
+	BridgeExplorer   string `json:"bridgeExplorerLink"`
+	TxHistoryURL     string `json:"txHistoryUrl"`
+	TokenAmountIn    string `json:"tokenAmountIn"`
+	TokenAmountOut   string `json:"tokenAmountOut"`
 }
 
 // TxInfo contains provider transaction metadata.

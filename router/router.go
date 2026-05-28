@@ -86,7 +86,7 @@ func (r *Router) FindProviders(ctx context.Context, req domain.QuoteRequest) ([]
 		supported = append(supported, name)
 	}
 	if len(supported) == 0 && len(errs) > 0 {
-		return nil, fmt.Errorf("all %d providers failed", len(errs))
+		return nil, fmt.Errorf("all providers failed, %d errors: %v", len(errs), errs)
 	}
 	return supported, nil
 }
@@ -100,7 +100,7 @@ func (r *Router) SelectBest(ctx context.Context, req domain.QuoteRequest, strate
 	quotes, errs := r.quoteAll(ctx, req)
 	if len(quotes) == 0 {
 		if len(errs) > 0 {
-			return nil, fmt.Errorf("no provider returned a valid quote (%d errors)", len(errs))
+			return nil, fmt.Errorf("no provider returned a valid quote (%d errors: %v)", len(errs), errs)
 		}
 		return nil, errors.New("no provider returned a valid quote")
 	}

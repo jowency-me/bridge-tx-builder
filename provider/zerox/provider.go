@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	hexutil "github.com/jowency-me/bridge-tx-builder/provider/internal/hex"
+	hexutil "github.com/jowency-me/bridge-tx-builder/utils/hex"
 
 	"github.com/jowency-me/bridge-tx-builder/domain"
 	"github.com/shopspring/decimal"

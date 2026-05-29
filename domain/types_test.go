@@ -149,24 +149,6 @@ func TestQuoteRequest_Validate(t *testing.T) {
 	}
 }
 
-func TestNumericID(t *testing.T) {
-	tests := []struct {
-		chain ChainID
-		want  int64
-	}{
-		{ChainEthereum, 1},
-		{ChainBase, 8453},
-		{ChainSolana, 101},
-		{ChainTron, 728126428},
-		{ChainID("unknown"), 0},
-	}
-	for _, tt := range tests {
-		t.Run(string(tt.chain), func(t *testing.T) {
-			assert.Equal(t, tt.want, NumericID(tt.chain))
-		})
-	}
-}
-
 func TestIsEVM(t *testing.T) {
 	tests := []struct {
 		chain ChainID
@@ -204,30 +186,6 @@ func TestSupportsEIP1559(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(string(tt.chain), func(t *testing.T) {
 			assert.Equal(t, tt.want, SupportsEIP1559(tt.chain))
-		})
-	}
-}
-
-func TestNumericToChainID(t *testing.T) {
-	tests := []struct {
-		input string
-		want  ChainID
-	}{
-		{"1", ChainEthereum},
-		{"8453", ChainBase},
-		{"101", ChainSolana},
-		{"728126428", ChainTron},
-		{"56", ChainBSC},
-		{"137", ChainPolygon},
-		{"42161", ChainArbitrum},
-		{"10", ChainOptimism},
-		{"43114", ChainAvalanche},
-		{"not-a-number", ""},
-		{"999999", ChainID("999999")},
-	}
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			assert.Equal(t, tt.want, NumericToChainID(tt.input))
 		})
 	}
 }

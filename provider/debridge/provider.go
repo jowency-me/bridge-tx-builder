@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/jowency-me/bridge-tx-builder/domain"
-	hexutil "github.com/jowency-me/bridge-tx-builder/provider/internal/hex"
+	hexutil "github.com/jowency-me/bridge-tx-builder/utils/hex"
 	"github.com/shopspring/decimal"
 )
 
@@ -21,6 +21,28 @@ type client interface {
 // Provider adapts the debridge API to the domain provider interface.
 type Provider struct {
 	client client
+}
+
+var chainCodes = map[domain.ChainID]string{
+	domain.ChainArbitrum:  "42161",
+	domain.ChainAvalanche: "43114",
+	domain.ChainBSC:       "56",
+	domain.ChainBase:      "8453",
+	domain.ChainEthereum:  "1",
+	domain.ChainOptimism:  "10",
+	domain.ChainPolygon:   "137",
+	domain.ChainSolana:    "7565164",
+	domain.ChainTron:      "100000026",
+}
+
+func numericToChainID(s string) domain.ChainID {
+	for cid, n := range chainCodes {
+		if n == s {
+			return cid
+		}
+	}
+
+	return domain.ChainID(s)
 }
 
 // Option configures a Provider.
@@ -74,18 +96,18 @@ func (p *Provider) Quote(ctx context.Context, req domain.QuoteRequest) (*domain.
 		return nil, err
 	}
 
-	if domain.NumericID(req.FromToken.ChainID) == 0 {
+	if _, ok := chainCodes[req.FromToken.ChainID]; !ok {
 		return nil, fmt.Errorf("%s: unsupported from chain %s", Name, req.FromToken.ChainID)
 	}
-	if domain.NumericID(req.ToToken.ChainID) == 0 {
+	if _, ok := chainCodes[req.ToToken.ChainID]; !ok {
 		return nil, fmt.Errorf("%s: unsupported to chain %s", Name, req.ToToken.ChainID)
 	}
 
 	params := QuoteParams{
-		SrcChainID:                    strconv.FormatInt(domain.NumericID(req.FromToken.ChainID), 10),
+		SrcChainID:                    chainCodes[req.FromToken.ChainID],
 		SrcChainTokenIn:               req.FromToken.Address,
 		SrcChainTokenInAmount:         req.Amount.String(),
-		DstChainID:                    strconv.FormatInt(domain.NumericID(req.ToToken.ChainID), 10),
+		DstChainID:                    chainCodes[req.ToToken.ChainID],
 		DstChainTokenOut:              req.ToToken.Address,
 		SrcChainOrderAuthorityAddress: req.FromAddr,
 		DstChainOrderAuthorityAddress: req.ToAddr,
@@ -179,7 +201,7 @@ func mapSrcToken(t SrcChainTokenInfo) domain.Token {
 		Symbol:   t.Symbol,
 		Address:  t.Address,
 		Decimals: t.Decimals,
-		ChainID:  domain.NumericToChainID(strconv.Itoa(t.ChainID)),
+		ChainID:  numericToChainID(strconv.Itoa(t.ChainID)),
 	}
 }
 
@@ -188,6 +210,6 @@ func mapDstToken(t DstChainTokenInfo) domain.Token {
 		Symbol:   t.Symbol,
 		Address:  t.Address,
 		Decimals: t.Decimals,
-		ChainID:  domain.NumericToChainID(strconv.Itoa(t.ChainID)),
+		ChainID:  numericToChainID(strconv.Itoa(t.ChainID)),
 	}
 }

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/jowency-me/bridge-tx-builder/domain"
-	hexutil "github.com/jowency-me/bridge-tx-builder/provider/internal/hex"
+	hexutil "github.com/jowency-me/bridge-tx-builder/utils/hex"
 	"github.com/shopspring/decimal"
 )
 
@@ -33,8 +33,26 @@ var chainCodes = map[domain.ChainID]string{
 	domain.ChainEthereum:  "1",
 	domain.ChainOptimism:  "10",
 	domain.ChainPolygon:   "137",
-	domain.ChainSolana:    "sol",
-	domain.ChainTron:      "tron",
+	domain.ChainSolana:    "1151111081099710",
+	domain.ChainTron:      "728126428",
+}
+
+func numericToChainID(s string) domain.ChainID {
+	for cid, n := range chainCodes {
+		if n == s {
+			return cid
+		}
+	}
+
+	// special cases
+	switch s {
+	case "sol":
+		return domain.ChainSolana
+	case "trn":
+		return domain.ChainTron
+	default:
+		return domain.ChainID(s)
+	}
 }
 
 // Option configures a Provider.
@@ -202,9 +220,9 @@ func mapQuote(qr *QuoteResponse, reqs ...domain.QuoteRequest) (*domain.Quote, er
 
 	route := make([]domain.RouteStep, 0, len(qr.IncludedSteps))
 	for _, s := range qr.IncludedSteps {
-		chainID := domain.NumericToChainID(strconv.Itoa(qr.Action.FromChainID))
+		chainID := numericToChainID(strconv.Itoa(qr.Action.FromChainID))
 		if s.Type == "cross" {
-			chainID = domain.NumericToChainID(strconv.Itoa(qr.Action.ToChainID))
+			chainID = numericToChainID(strconv.Itoa(qr.Action.ToChainID))
 		}
 		route = append(route, domain.RouteStep{
 			ChainID:  chainID,
@@ -277,6 +295,6 @@ func mapToken(t TokenInfo, chainID int) domain.Token {
 		Symbol:   t.Symbol,
 		Address:  t.Address,
 		Decimals: t.Decimals,
-		ChainID:  domain.NumericToChainID(strconv.Itoa(chainID)),
+		ChainID:  numericToChainID(strconv.Itoa(chainID)),
 	}
 }

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	hexutil "github.com/jowency-me/bridge-tx-builder/provider/internal/hex"
+	hexutil "github.com/jowency-me/bridge-tx-builder/utils/hex"
 
 	"github.com/jowency-me/bridge-tx-builder/domain"
 	"github.com/shopspring/decimal"
@@ -35,6 +35,16 @@ var chainCodes = map[domain.ChainID]string{
 	domain.ChainPolygon:   "137",
 	domain.ChainSolana:    "solana",
 	domain.ChainTron:      "728126428",
+}
+
+func numericToChainID(s string) domain.ChainID {
+	for cid, n := range chainCodes {
+		if n == s {
+			return cid
+		}
+	}
+
+	return domain.ChainID(s)
 }
 
 // Option configures a Provider.
@@ -191,12 +201,12 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error)
 
 	route := []domain.RouteStep{
 		{
-			ChainID:  domain.NumericToChainID(qr.Route.Estimate.FromToken.ChainID),
+			ChainID:  numericToChainID(qr.Route.Estimate.FromToken.ChainID),
 			Protocol: "squid",
 			Action:   "swap",
 		},
 		{
-			ChainID:  domain.NumericToChainID(qr.Route.Estimate.ToToken.ChainID),
+			ChainID:  numericToChainID(qr.Route.Estimate.ToToken.ChainID),
 			Protocol: "squid",
 			Action:   "bridge",
 		},
@@ -258,6 +268,6 @@ func mapToken(t TokenInfo) domain.Token {
 		Symbol:   t.Symbol,
 		Address:  t.Address,
 		Decimals: t.Decimals,
-		ChainID:  domain.NumericToChainID(t.ChainID),
+		ChainID:  numericToChainID(t.ChainID),
 	}
 }

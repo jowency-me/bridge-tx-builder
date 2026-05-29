@@ -26,30 +26,30 @@ func (s *invalidSigner) Sign(_ context.Context, _ []byte) ([]byte, error) {
 }
 
 func TestBuilder_ChainID(t *testing.T) {
-	b := NewBuilder(1)
+	b := NewBuilder(domain.ChainEthereum)
 	assert.Equal(t, domain.ChainEthereum, b.ChainID())
 
-	b2 := NewBuilder(8453)
+	b2 := NewBuilder(domain.ChainBase)
 	assert.Equal(t, domain.ChainBase, b2.ChainID())
 
-	b3 := NewBuilder(56)
+	b3 := NewBuilder(domain.ChainBSC)
 	assert.Equal(t, domain.ChainBSC, b3.ChainID())
 
-	b4 := NewBuilder(137)
+	b4 := NewBuilder(domain.ChainPolygon)
 	assert.Equal(t, domain.ChainPolygon, b4.ChainID())
 
-	b5 := NewBuilder(42161)
+	b5 := NewBuilder(domain.ChainArbitrum)
 	assert.Equal(t, domain.ChainArbitrum, b5.ChainID())
 
-	b6 := NewBuilder(10)
+	b6 := NewBuilder(domain.ChainOptimism)
 	assert.Equal(t, domain.ChainOptimism, b6.ChainID())
 
-	b7 := NewBuilder(43114)
+	b7 := NewBuilder(domain.ChainAvalanche)
 	assert.Equal(t, domain.ChainAvalanche, b7.ChainID())
 }
 
 func TestBuilder_Build_EIP1559(t *testing.T) {
-	b := NewBuilder(1)
+	b := NewBuilder(domain.ChainEthereum)
 	ctx := context.Background()
 
 	key, err := crypto.GenerateKey()
@@ -82,7 +82,7 @@ func TestBuilder_Build_EIP1559(t *testing.T) {
 }
 
 func TestBuilder_Build_Legacy(t *testing.T) {
-	b := NewBuilder(56) // BSC legacy
+	b := NewBuilder(domain.ChainBSC) // BSC legacy
 	ctx := context.Background()
 
 	key, err := crypto.GenerateKey()
@@ -110,7 +110,7 @@ func TestBuilder_Build_Legacy(t *testing.T) {
 }
 
 func TestBuilder_Build_MissingTo(t *testing.T) {
-	b := NewBuilder(1)
+	b := NewBuilder(domain.ChainEthereum)
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	signer, err := domain.NewEVMPrivateKeySigner(crypto.FromECDSA(key))
@@ -122,7 +122,7 @@ func TestBuilder_Build_MissingTo(t *testing.T) {
 }
 
 func TestBuilder_Build_LowercaseFrom(t *testing.T) {
-	b := NewBuilder(1)
+	b := NewBuilder(domain.ChainEthereum)
 	ctx := context.Background()
 
 	key, err := crypto.GenerateKey()
@@ -150,7 +150,7 @@ func TestBuilder_Build_LowercaseFrom(t *testing.T) {
 }
 
 func TestBuilder_Build_GasLimitTooHigh(t *testing.T) {
-	b := NewBuilder(1)
+	b := NewBuilder(domain.ChainEthereum)
 	ctx := context.Background()
 
 	key, err := crypto.GenerateKey()
@@ -176,7 +176,7 @@ func TestBuilder_Build_GasLimitTooHigh(t *testing.T) {
 }
 
 func TestBuilder_Build_InvalidPrivateKey(t *testing.T) {
-	b := NewBuilder(1)
+	b := NewBuilder(domain.ChainEthereum)
 	quote := domain.Quote{
 		ID:        "q1",
 		Provider:  "lifi",

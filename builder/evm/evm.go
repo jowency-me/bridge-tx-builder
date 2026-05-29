@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"strconv"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -17,6 +16,16 @@ import (
 
 const maxGasLimit = 50_000_000
 
+var chainCodes = map[domain.ChainID]string{
+	domain.ChainArbitrum:  "42161",
+	domain.ChainAvalanche: "43114",
+	domain.ChainBSC:       "56",
+	domain.ChainBase:      "8453",
+	domain.ChainEthereum:  "1",
+	domain.ChainOptimism:  "10",
+	domain.ChainPolygon:   "137",
+}
+
 // Builder constructs EVM-compatible transactions (Ethereum, Base, etc.).
 type Builder struct {
 	numericChainID *big.Int
@@ -24,11 +33,16 @@ type Builder struct {
 }
 
 // NewBuilder creates an EVM builder for the given numeric chain ID.
-func NewBuilder(numericChainID int64) *Builder {
-	cid := domain.NumericToChainID(strconv.FormatInt(numericChainID, 10))
+func NewBuilder(chainId domain.ChainID) *Builder {
+	code := chainCodes[chainId]
+	if code == "" {
+		return nil
+	}
+
+	codeInt, _ := big.NewInt(0).SetString(code, 10)
 	return &Builder{
-		numericChainID: big.NewInt(numericChainID),
-		chainID:        cid,
+		numericChainID: codeInt,
+		chainID:        chainId,
 	}
 }
 

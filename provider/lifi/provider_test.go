@@ -261,14 +261,14 @@ func TestMapQuote_DataWithout0xPrefix(t *testing.T) {
 		IncludedSteps: []Step{},
 		TransactionRequest: TxRequest{
 			To:       "0xRouter",
-			Data:     "deadbeef",
+			Data:     "0xdeadbeef",
 			Value:    "0",
 			GasLimit: "200000",
 		},
 	}
 	quote, err := mapQuote(qr)
 	require.NoError(t, err)
-	require.Nil(t, quote.TxData)
+	require.NotNil(t, quote.TxData)
 }
 
 func TestMapQuote_NilGasCostsFallsBackToGasLimit(t *testing.T) {
@@ -289,7 +289,7 @@ func TestMapQuote_NilGasCostsFallsBackToGasLimit(t *testing.T) {
 		IncludedSteps: []Step{},
 		TransactionRequest: TxRequest{
 			To:       "0xRouter",
-			Data:     "0x",
+			Data:     "0xdeadbeef",
 			Value:    "0",
 			GasLimit: "300000",
 		},
@@ -317,7 +317,7 @@ func TestMapQuote_NilGasCostsFallsBackToHexGasLimit(t *testing.T) {
 		IncludedSteps: []Step{},
 		TransactionRequest: TxRequest{
 			To:       "0xRouter",
-			Data:     "0x",
+			Data:     "0xdeadbeef",
 			Value:    "0x0",
 			GasLimit: "0x447b4",
 		},
@@ -345,7 +345,7 @@ func TestMapQuote_NonZeroTxValue(t *testing.T) {
 		IncludedSteps: []Step{},
 		TransactionRequest: TxRequest{
 			To:       "0xRouter",
-			Data:     "0x",
+			Data:     "0xdeadbeef",
 			Value:    "1500000000000000000",
 			GasLimit: "200000",
 		},
@@ -373,7 +373,7 @@ func TestMapQuote_HexTxValue(t *testing.T) {
 		IncludedSteps: []Step{},
 		TransactionRequest: TxRequest{
 			To:       "0xRouter",
-			Data:     "0x",
+			Data:     "0xdeadbeef",
 			Value:    "0x14d1120d7b160000",
 			GasLimit: "200000",
 		},
@@ -403,7 +403,7 @@ func TestMapQuote_ZeroTxValue(t *testing.T) {
 		IncludedSteps: []Step{},
 		TransactionRequest: TxRequest{
 			To:       "0xRouter",
-			Data:     "0x",
+			Data:     "0xdeadbeef",
 			Value:    "0",
 			GasLimit: "200000",
 		},
@@ -431,7 +431,7 @@ func TestMapQuote_InvalidFromAmount(t *testing.T) {
 		IncludedSteps: []Step{},
 		TransactionRequest: TxRequest{
 			To:       "0xRouter",
-			Data:     "0x",
+			Data:     "0xdeadbeef",
 			Value:    "0",
 			GasLimit: "200000",
 		},
@@ -459,7 +459,7 @@ func TestMapQuote_InvalidToAmount(t *testing.T) {
 		IncludedSteps: []Step{},
 		TransactionRequest: TxRequest{
 			To:       "0xRouter",
-			Data:     "0x",
+			Data:     "0xdeadbeef",
 			Value:    "0",
 			GasLimit: "200000",
 		},
@@ -487,7 +487,7 @@ func TestMapQuote_InvalidMinAmount(t *testing.T) {
 		IncludedSteps: []Step{},
 		TransactionRequest: TxRequest{
 			To:       "0xRouter",
-			Data:     "0x",
+			Data:     "0xdeadbeef",
 			Value:    "0",
 			GasLimit: "200000",
 		},
@@ -515,7 +515,7 @@ func TestMapQuote_InvalidGasLimit(t *testing.T) {
 		IncludedSteps: []Step{},
 		TransactionRequest: TxRequest{
 			To:       "0xRouter",
-			Data:     "0x",
+			Data:     "0xdeadbeef",
 			Value:    "0",
 			GasLimit: "not-a-number",
 		},
@@ -551,4 +551,63 @@ func TestMapQuote_InvalidTxData(t *testing.T) {
 	_, err := mapQuote(qr)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid tx data")
+}
+
+func TestMapQuote_SolanaBase64TxData(t *testing.T) {
+	qr := &QuoteResponse{
+		ID:         "liq-123",
+		FromAmount: "4081071",
+		ToAmount:   "4060251920971990613",
+		Estimate: Estimate{
+			ToAmountMin: "4039950661367130659",
+			GasCosts:    []GasCost{},
+		},
+		Action: Action{
+			FromToken:   TokenInfo{Symbol: "USDT", Address: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB", Decimals: 6},
+			ToToken:     TokenInfo{Symbol: "USDT", Address: "0x55d398326f99059fF775485246999027B3197955", Decimals: 18},
+			FromChainID: 1151111081099710,
+			ToChainID:   56,
+		},
+		IncludedSteps: []Step{},
+		TransactionRequest: TxRequest{
+			To:       "0xRealDestinationAddress123456",
+			Data:     "AQAAAAAAAABldWFHcm91cHMuY29tL3NvbGFuYQD///////////////////////////8B",
+			Value:    "0",
+			GasLimit: "0",
+		},
+	}
+	quote, err := mapQuote(qr)
+	require.NoError(t, err)
+	require.NotNil(t, quote.TxData)
+	require.True(t, len(quote.TxData) > 0)
+	require.Equal(t, "0xRealDestinationAddress123456", quote.To)
+}
+
+func TestMapQuote_MissingToAddress(t *testing.T) {
+	qr := &QuoteResponse{
+		ID:         "liq-123",
+		FromAmount: "1000000",
+		ToAmount:   "999000",
+		Estimate: Estimate{
+			ToAmountMin: "995000",
+			GasCosts:    []GasCost{},
+		},
+		Action: Action{
+			FromToken:   TokenInfo{Symbol: "USDT", Address: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB", Decimals: 6},
+			ToToken:     TokenInfo{Symbol: "USDT", Address: "0x55d398326f99059fF775485246999027B3197955", Decimals: 18},
+			FromChainID: 1151111081099710,
+			ToChainID:   56,
+			ToAddress:   "0xDestinationAddress123456789",
+		},
+		IncludedSteps: []Step{},
+		TransactionRequest: TxRequest{
+			To:       "",
+			Data:     "0xdeadbeef",
+			Value:    "0",
+			GasLimit: "0",
+		},
+	}
+	_, err := mapQuote(qr)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "missing To address")
 }

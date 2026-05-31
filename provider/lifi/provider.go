@@ -2,6 +2,7 @@ package lifi
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -202,11 +203,20 @@ func mapQuote(qr *QuoteResponse, reqs ...domain.QuoteRequest) (*domain.Quote, er
 	}
 
 	var txData []byte
-	if strings.HasPrefix(qr.TransactionRequest.Data, "0x") {
-		var err error
-		txData, err = hexutil.Decode(qr.TransactionRequest.Data[2:])
-		if err != nil {
-			return nil, fmt.Errorf("%s: invalid tx data: %w", Name, err)
+	dataStr := qr.TransactionRequest.Data
+	if dataStr != "" {
+		if strings.HasPrefix(dataStr, "0x") {
+			var err error
+			txData, err = hexutil.Decode(dataStr[2:])
+			if err != nil {
+				return nil, fmt.Errorf("%s: invalid tx data: %w", Name, err)
+			}
+		} else if numericToChainID(strconv.Itoa(qr.Action.FromChainID)) == domain.ChainSolana {
+			var err error
+			txData, err = base64.StdEncoding.DecodeString(dataStr)
+			if err != nil {
+				return nil, fmt.Errorf("%s: invalid base64 tx data: %w", Name, err)
+			}
 		}
 	}
 
@@ -246,6 +256,14 @@ func mapQuote(qr *QuoteResponse, reqs ...domain.QuoteRequest) (*domain.Quote, er
 		}
 	}
 
+	toAddr := qr.TransactionRequest.To
+	if toAddr == "" {
+		return nil, fmt.Errorf("%s: quote is missing To address", Name)
+	}
+	if len(txData) == 0 {
+		return nil, fmt.Errorf("%s: quote is missing TxData", Name)
+	}
+
 	return &domain.Quote{
 		ID:              qr.ID,
 		FromToken:       mapToken(qr.Action.FromToken, qr.Action.FromChainID),
@@ -257,7 +275,7 @@ func mapQuote(qr *QuoteResponse, reqs ...domain.QuoteRequest) (*domain.Quote, er
 		Provider:        string(Name),
 		Route:           route,
 		Deadline:        time.Now().Add(10 * time.Minute),
-		To:              qr.TransactionRequest.To,
+		To:              toAddr,
 		TxData:          txData,
 		TxValue:         txValue,
 		EstimateGas:     gas,

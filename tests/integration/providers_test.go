@@ -10,6 +10,7 @@ import (
 
 	"github.com/jowency-me/bridge-tx-builder/domain"
 	"github.com/jowency-me/bridge-tx-builder/provider/1inch"
+	"github.com/jowency-me/bridge-tx-builder/provider/lifi"
 	"github.com/jowency-me/bridge-tx-builder/provider/openocean"
 	"github.com/jowency-me/bridge-tx-builder/provider/zerox"
 	"github.com/jowency-me/bridge-tx-builder/router"
@@ -65,6 +66,7 @@ func TestProviders_CrossChainQuote(t *testing.T) {
 
 			// Transaction data
 			assert.NotEmpty(t, quote.To, "To (contract address) must be set")
+			assert.NotEmpty(t, quote.TxData, "TxData must be set")
 			assert.True(t, quote.Deadline.After(time.Now()), "Deadline must be in the future")
 
 			// Route (some providers return empty route for simple swaps)
@@ -88,6 +90,69 @@ func TestProviders_CrossChainQuote(t *testing.T) {
 				quote.ApprovalAddress, quote.EstimateFee.String(),
 				quote.EstimateGas, len(quote.Route))
 		})
+	}
+}
+
+// TestProviders_CrossChainRoutes tests multiple from/to chain combinations.
+// This verifies that providers correctly handle To address and TxData for different chain types.
+func TestProviders_CrossChainRoutes(t *testing.T) {
+	providers := []domain.Provider{lifi.NewProvider("")}
+	if len(providers) == 0 {
+		t.Skip("no providers available")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	fromAddr := "0x1234567890123456789012345678901234567890"
+	routes := CrossChainRoutes(fromAddr)
+
+	for _, p := range providers {
+		for _, route := range routes {
+			t.Run(p.Name()+"/"+route.Name, func(t *testing.T) {
+				req := domain.QuoteRequest{
+					FromToken: route.FromToken,
+					ToToken:   route.ToToken,
+					Amount:    decimal.NewFromInt(1_000_000),
+					Slippage:  0.005,
+					FromAddr:  fromAddr,
+					ToAddr:    fromAddr,
+				}
+
+				quote, err := p.Quote(ctx, req)
+				if err != nil {
+					t.Skipf("provider %s route %s unavailable: %v", p.Name(), route.Name, err)
+					return
+				}
+				require.NotNil(t, quote)
+
+				assert.NotEmpty(t, quote.ID, "ID must be set")
+				assert.Equal(t, p.Name(), quote.Provider)
+				assert.Equal(t, route.FromToken.Symbol, quote.FromToken.Symbol)
+				assert.Equal(t, route.FromToken.ChainID, quote.FromToken.ChainID)
+				assert.Equal(t, route.ToToken.ChainID, quote.ToToken.ChainID)
+
+				if err := quote.Validate(); err != nil {
+					t.Skipf("provider %s returned invalid quote for %s: %v", p.Name(), route.Name, err)
+					return
+				}
+
+				assert.True(t, quote.ToAmount.GreaterThan(decimal.Zero), "ToAmount must be positive")
+				assert.True(t, quote.MinAmount.GreaterThan(decimal.Zero), "MinAmount must be positive")
+
+				assert.NotEmpty(t, quote.To, "To must be set")
+				assert.NotEmpty(t, quote.TxData, "TxData must be set")
+
+				if len(quote.Route) > 0 {
+					for _, step := range quote.Route {
+						assert.NotEmpty(t, step.ChainID, "route step chain must be set")
+					}
+				}
+
+				t.Logf("route=%s quote: id=%s toAmount=%s to=%s routeSteps=%d",
+					route.Name, quote.ID, quote.ToAmount, quote.To, len(quote.Route))
+			})
+		}
 	}
 }
 

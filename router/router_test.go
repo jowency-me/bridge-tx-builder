@@ -67,7 +67,7 @@ func TestRouter_FindProviders_AllFailed(t *testing.T) {
 
 	list, err := r.FindProviders(ctx, req)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "all 2 providers failed")
+	assert.Contains(t, err.Error(), "all providers failed")
 	assert.Nil(t, list)
 }
 

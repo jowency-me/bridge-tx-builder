@@ -174,6 +174,22 @@ var usdcBase = domain.Token{
 	ChainID:  domain.ChainBase,
 }
 
+// usdtSolana is the USDT token on Solana.
+var usdtSolana = domain.Token{
+	Symbol:   "USDT",
+	Address:  "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+	Decimals: 6,
+	ChainID:  domain.ChainSolana,
+}
+
+// usdtBSC is the USDT token on BSC.
+var usdtBSC = domain.Token{
+	Symbol:   "USDT",
+	Address:  "0x55d398326f99059fF775485246999027B3197955",
+	Decimals: 18,
+	ChainID:  domain.ChainBSC,
+}
+
 // crossChainQuoteRequest returns a standard USDC ETH→Base quote request.
 func crossChainQuoteRequest(fromAddr string) domain.QuoteRequest {
 	return domain.QuoteRequest{
@@ -183,6 +199,23 @@ func crossChainQuoteRequest(fromAddr string) domain.QuoteRequest {
 		Slippage:  0.005,
 		FromAddr:  fromAddr,
 		ToAddr:    fromAddr,
+	}
+}
+
+// CrossChainRoute describes a from/to chain pair for cross-chain quotes.
+type CrossChainRoute struct {
+	Name      string
+	FromToken domain.Token
+	ToToken   domain.Token
+}
+
+// CrossChainRoutes returns all supported cross-chain route combinations for testing.
+func CrossChainRoutes(fromAddr string) []CrossChainRoute {
+	return []CrossChainRoute{
+		{Name: "ETH→Base", FromToken: usdcEthereum, ToToken: usdcBase},
+		{Name: "Solana→BSC", FromToken: usdtSolana, ToToken: usdtBSC},
+		{Name: "BSC→Solana", FromToken: usdtBSC, ToToken: usdtSolana},
+		{Name: "Solana→Base", FromToken: usdtSolana, ToToken: usdcBase},
 	}
 }
 

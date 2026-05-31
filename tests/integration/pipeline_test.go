@@ -56,7 +56,7 @@ func TestPipeline_QuoteBuildSimulate(t *testing.T) {
 
 	r := router.New()
 	r.RegisterProvider(mock.NewFixedProvider("mock-pipeline", quote))
-	r.RegisterBuilder(evmBuilder.NewBuilder(1))
+	r.RegisterBuilder(evmBuilder.NewBuilder(domain.ChainEthereum))
 	simulator, err := evmSim.NewSimulator(selectedRPC)
 	require.NoError(t, err)
 	r.RegisterSimulator(domain.ChainEthereum, simulator)
@@ -138,7 +138,7 @@ func TestPipeline_ApprovalFlow(t *testing.T) {
 
 	r := router.New()
 	r.RegisterProvider(mock.NewFixedProvider("mock-approval", quote))
-	r.RegisterBuilder(evmBuilder.NewBuilder(1))
+	r.RegisterBuilder(evmBuilder.NewBuilder(domain.ChainEthereum))
 
 	req := crossChainQuoteRequest(fromAddr)
 

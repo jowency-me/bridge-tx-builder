@@ -30,14 +30,6 @@ func (b *Builder) Build(ctx context.Context, quote domain.Quote, from string, si
 	if quote.BlockHash == "" {
 		return nil, errors.New("recent blockhash required")
 	}
-	if quote.To == "" {
-		return nil, errors.New("target program address required")
-	}
-
-	programID, err := solana.PublicKeyFromBase58(quote.To)
-	if err != nil {
-		return nil, fmt.Errorf("invalid target program address: %w", err)
-	}
 
 	publicKeyBytes, err := signer.PublicKey(ctx)
 	if err != nil {
@@ -50,29 +42,7 @@ func (b *Builder) Build(ctx context.Context, quote domain.Quote, from string, si
 
 	recentBlockhash := solana.MustHashFromBase58(quote.BlockHash)
 
-	var instructionData []byte
-	if len(quote.TxData) > 0 {
-		instructionData = quote.TxData
-	}
-
-	tx, err := solana.NewTransaction(
-		[]solana.Instruction{
-			solana.NewInstruction(
-				programID,
-				solana.AccountMetaSlice{
-					{PublicKey: publicKey, IsSigner: true, IsWritable: true},
-				},
-				instructionData,
-			),
-		},
-		recentBlockhash,
-		solana.TransactionPayer(publicKey),
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	_, err = b.sign(ctx, tx, signer)
+	tx, err := b.buildFromPrebuiltTx(ctx, quote, publicKey, recentBlockhash, signer)
 	if err != nil {
 		return nil, err
 	}
@@ -92,6 +62,20 @@ func (b *Builder) Build(ctx context.Context, quote domain.Quote, from string, si
 	}, nil
 }
 
+func (b *Builder) buildFromPrebuiltTx(ctx context.Context, quote domain.Quote, pubKey solana.PublicKey, recentBlockhash solana.Hash, signer domain.Signer) (*solana.Transaction, error) {
+	tx, err := solana.TransactionFromBytes(quote.TxData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to deserialize Solana transaction: %w", err)
+	}
+
+	_, err = b.sign(ctx, tx, signer)
+	if err != nil {
+		return nil, err
+	}
+
+	return tx, nil
+}
+
 func (b *Builder) sign(ctx context.Context, tx *solana.Transaction, signer domain.Signer) (*solana.Transaction, error) {
 	messageContent, err := tx.Message.MarshalBinary()
 	if err != nil {
@@ -105,5 +89,4 @@ func (b *Builder) sign(ctx context.Context, tx *solana.Transaction, signer domai
 	tx.Signatures = append(tx.Signatures, solana.SignatureFromBytes(signature))
 
 	return tx, nil
-
 }

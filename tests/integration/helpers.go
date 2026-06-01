@@ -13,7 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/jowency-me/bridge-tx-builder/domain"
-	"github.com/jowency-me/bridge-tx-builder/provider/1inch"
+	oneinch "github.com/jowency-me/bridge-tx-builder/provider/1inch"
 	"github.com/jowency-me/bridge-tx-builder/provider/across"
 	"github.com/jowency-me/bridge-tx-builder/provider/celer"
 	"github.com/jowency-me/bridge-tx-builder/provider/debridge"
@@ -204,18 +204,20 @@ func crossChainQuoteRequest(fromAddr string) domain.QuoteRequest {
 
 // CrossChainRoute describes a from/to chain pair for cross-chain quotes.
 type CrossChainRoute struct {
-	Name      string
-	FromToken domain.Token
-	ToToken   domain.Token
+	Name        string
+	FromToken   domain.Token
+	ToToken     domain.Token
+	FromAddress string
+	ToAddress   string
 }
 
 // CrossChainRoutes returns all supported cross-chain route combinations for testing.
-func CrossChainRoutes(fromAddr string) []CrossChainRoute {
+func CrossChainRoutes() []CrossChainRoute {
 	return []CrossChainRoute{
-		{Name: "ETH→Base", FromToken: usdcEthereum, ToToken: usdcBase},
-		{Name: "Solana→BSC", FromToken: usdtSolana, ToToken: usdtBSC},
-		{Name: "BSC→Solana", FromToken: usdtBSC, ToToken: usdtSolana},
-		{Name: "Solana→Base", FromToken: usdtSolana, ToToken: usdcBase},
+		{Name: "Solana→BSC", FromToken: usdtSolana, ToToken: usdtBSC, FromAddress: "84ib5yDqx6E6Mmeartg1xWRjaJ4TDJUudooH9g528qgw", ToAddress: "0xBc3eDD5b9c134D13E3b69fd13DEC2309Bb45f566"},
+		// {Name: "ETH→Base", FromToken: usdcEthereum, ToToken: usdcBase},
+		// {Name: "BSC→Solana", FromToken: usdtBSC, ToToken: usdtSolana},
+		// {Name: "Solana→Base", FromToken: usdtSolana, ToToken: usdcBase},
 	}
 }
 

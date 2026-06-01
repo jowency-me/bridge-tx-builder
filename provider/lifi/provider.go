@@ -256,10 +256,6 @@ func mapQuote(qr *QuoteResponse, reqs ...domain.QuoteRequest) (*domain.Quote, er
 		}
 	}
 
-	toAddr := qr.TransactionRequest.To
-	if toAddr == "" {
-		return nil, fmt.Errorf("%s: quote is missing To address", Name)
-	}
 	if len(txData) == 0 {
 		return nil, fmt.Errorf("%s: quote is missing TxData", Name)
 	}
@@ -275,7 +271,7 @@ func mapQuote(qr *QuoteResponse, reqs ...domain.QuoteRequest) (*domain.Quote, er
 		Provider:        string(Name),
 		Route:           route,
 		Deadline:        time.Now().Add(10 * time.Minute),
-		To:              toAddr,
+		To:              qr.TransactionRequest.To,
 		TxData:          txData,
 		TxValue:         txValue,
 		EstimateGas:     gas,

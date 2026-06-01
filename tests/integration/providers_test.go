@@ -9,7 +9,8 @@ import (
 	"time"
 
 	"github.com/jowency-me/bridge-tx-builder/domain"
-	"github.com/jowency-me/bridge-tx-builder/provider/1inch"
+	oneinch "github.com/jowency-me/bridge-tx-builder/provider/1inch"
+	"github.com/jowency-me/bridge-tx-builder/provider/debridge"
 	"github.com/jowency-me/bridge-tx-builder/provider/lifi"
 	"github.com/jowency-me/bridge-tx-builder/provider/openocean"
 	"github.com/jowency-me/bridge-tx-builder/provider/zerox"
@@ -96,7 +97,10 @@ func TestProviders_CrossChainQuote(t *testing.T) {
 // TestProviders_CrossChainRoutes tests multiple from/to chain combinations.
 // This verifies that providers correctly handle To address and TxData for different chain types.
 func TestProviders_CrossChainRoutes(t *testing.T) {
-	providers := []domain.Provider{lifi.NewProvider("")}
+	providers := []domain.Provider{
+		lifi.NewProvider("4bc09300-9dd0-4c9f-ad66-ade69eff2417.8ce590bb-7d2f-4e94-b53b-5b3847771b04"),
+		debridge.NewProvider(),
+	}
 	if len(providers) == 0 {
 		t.Skip("no providers available")
 	}
@@ -104,19 +108,19 @@ func TestProviders_CrossChainRoutes(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
-	fromAddr := "0x1234567890123456789012345678901234567890"
-	routes := CrossChainRoutes(fromAddr)
+	routes := CrossChainRoutes()
 
-	for _, p := range providers {
-		for _, route := range routes {
+	for _, route := range routes {
+		for _, p := range providers {
 			t.Run(p.Name()+"/"+route.Name, func(t *testing.T) {
 				req := domain.QuoteRequest{
 					FromToken: route.FromToken,
 					ToToken:   route.ToToken,
-					Amount:    decimal.NewFromInt(1_000_000),
-					Slippage:  0.005,
-					FromAddr:  fromAddr,
-					ToAddr:    fromAddr,
+					// Amount:    decimal.NewFromInt(10_000_000),
+					Amount:   decimal.NewFromInt(4081071),
+					Slippage: 0.005,
+					FromAddr: route.FromAddress,
+					ToAddr:   route.ToAddress,
 				}
 
 				quote, err := p.Quote(ctx, req)
@@ -140,7 +144,11 @@ func TestProviders_CrossChainRoutes(t *testing.T) {
 				assert.True(t, quote.ToAmount.GreaterThan(decimal.Zero), "ToAmount must be positive")
 				assert.True(t, quote.MinAmount.GreaterThan(decimal.Zero), "MinAmount must be positive")
 
-				assert.NotEmpty(t, quote.To, "To must be set")
+				// For Solana source chains with pre-built transactions (e.g., deBridge),
+				// To may be empty because the transaction data is self-contained.
+				if quote.FromToken.ChainID != domain.ChainSolana {
+					assert.NotEmpty(t, quote.To, "To must be set for non-Solana source chains")
+				}
 				assert.NotEmpty(t, quote.TxData, "TxData must be set")
 
 				if len(quote.Route) > 0 {

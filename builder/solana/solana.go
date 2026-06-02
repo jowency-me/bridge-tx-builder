@@ -40,9 +40,7 @@ func (b *Builder) Build(ctx context.Context, quote domain.Quote, from string, si
 		return nil, errors.New("private key does not match from address")
 	}
 
-	recentBlockhash := solana.MustHashFromBase58(quote.BlockHash)
-
-	tx, err := b.buildFromPrebuiltTx(ctx, quote, publicKey, recentBlockhash, signer)
+	tx, err := b.buildFromPrebuiltTx(ctx, quote, publicKey, signer)
 	if err != nil {
 		return nil, err
 	}
@@ -62,11 +60,15 @@ func (b *Builder) Build(ctx context.Context, quote domain.Quote, from string, si
 	}, nil
 }
 
-func (b *Builder) buildFromPrebuiltTx(ctx context.Context, quote domain.Quote, pubKey solana.PublicKey, recentBlockhash solana.Hash, signer domain.Signer) (*solana.Transaction, error) {
+func (b *Builder) buildFromPrebuiltTx(ctx context.Context, quote domain.Quote, pubKey solana.PublicKey, signer domain.Signer) (*solana.Transaction, error) {
 	tx, err := solana.TransactionFromBytes(quote.TxData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to deserialize Solana transaction: %w", err)
 	}
+
+	tx.Message.RecentBlockhash = solana.MustHashFromBase58(quote.BlockHash)
+	tx.Message.AccountKeys = append(tx.Message.AccountKeys, pubKey)
+	tx.Message.Header.NumRequiredSignatures += 1
 
 	_, err = b.sign(ctx, tx, signer)
 	if err != nil {

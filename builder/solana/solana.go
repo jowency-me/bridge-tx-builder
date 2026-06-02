@@ -67,7 +67,6 @@ func (b *Builder) buildFromPrebuiltTx(ctx context.Context, quote domain.Quote, p
 	}
 
 	tx.Message.RecentBlockhash = solana.MustHashFromBase58(quote.BlockHash)
-	tx.Message.AccountKeys = append(tx.Message.AccountKeys, pubKey)
 
 	_, err = b.sign(ctx, tx, signer)
 	if err != nil {
@@ -87,7 +86,7 @@ func (b *Builder) sign(ctx context.Context, tx *solana.Transaction, signer domai
 	if err != nil {
 		return nil, fmt.Errorf("sign message error: %w", err)
 	}
-	tx.Signatures = append(tx.Signatures, solana.SignatureFromBytes(signature))
+	tx.Signatures[0] = solana.SignatureFromBytes(signature)
 
 	return tx, nil
 }

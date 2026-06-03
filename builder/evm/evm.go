@@ -70,12 +70,13 @@ func (b *Builder) Build(ctx context.Context, quote domain.Quote, from string, si
 		return nil, fmt.Errorf("get public key error: %w", err)
 	}
 
-	publicKey, err := crypto.DecompressPubkey(publicKeyBytes)
+	// crypto.UnmarshalPubkey accepts both compressed (33 bytes) and uncompressed (65 bytes) formats
+	ecdsaPubKey, err := crypto.UnmarshalPubkey(publicKeyBytes)
 	if err != nil {
-		return nil, fmt.Errorf("decompress public key: %w", err)
+		return nil, fmt.Errorf("invalid public key: %w", err)
 	}
 
-	fromAddr := crypto.PubkeyToAddress(*publicKey)
+	fromAddr := crypto.PubkeyToAddress(*ecdsaPubKey)
 	if common.HexToAddress(from).Hex() != fromAddr.Hex() {
 		return nil, errors.New("private key does not match from address")
 	}

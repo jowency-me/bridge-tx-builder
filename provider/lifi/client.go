@@ -12,7 +12,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"time"
@@ -237,7 +236,7 @@ func (c *Client) Quote(ctx context.Context, params QuoteParams) (*QuoteResponse,
 	if err != nil {
 		return nil, fmt.Errorf("lifi quote failed: status %d, resp body read error: %w", resp.StatusCode, err)
 	}
-	log.Printf("%s", string(body))
+	// log.Printf("%s", string(body))
 
 	var qr QuoteResponse
 	if err := json.Unmarshal(body, &qr); err != nil {

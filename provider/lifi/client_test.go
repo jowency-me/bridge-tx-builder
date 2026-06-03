@@ -2,6 +2,8 @@ package lifi
 
 import (
 	"context"
+	"encoding/json"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -319,4 +321,17 @@ func TestClient_Status_JSONDeserialization(t *testing.T) {
 	require.Equal(t, "https://example.com/history/123", resp.TxHistoryURL)
 	require.Equal(t, "1000000", resp.TokenAmountIn)
 	require.Equal(t, "999000", resp.TokenAmountOut)
+}
+
+func TestClient_Status(t *testing.T) {
+	c := NewClient("4bc09300-9dd0-4c9f-ad66-ade69eff2417.8ce590bb-7d2f-4e94-b53b-5b3847771b04")
+
+	resp, err := c.Status(context.Background(), "4eE9XJzotFiAVe58Jtdu1fQ9UeFSh2xcXXtbmWYpKh5kCoJMTirtsgCh2Yeoj2WDEe1gXMZsC27ftnUtVAcjvJt9")
+	// resp, err := c.Status(context.Background(), "bf4d7661-8516-4c56-a35c-3378f05d90e2:0")
+	// resp, err := c.Status(context.Background(), "0x68617aa6ce163f00")
+	if err != nil {
+		t.Fatal(err)
+	}
+	buf, _ := json.MarshalIndent(resp, "", "  ")
+	log.Printf("%s", string(buf))
 }

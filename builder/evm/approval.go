@@ -9,7 +9,7 @@ import (
 )
 
 // erc20ApproveMethodID is the first 4 bytes of keccak256("approve(address,uint256)").
-var erc20ApproveMethodID = [4]byte{0x09, 0x5e, 0xa7, 0xb2}
+var erc20ApproveMethodID = [4]byte{0x09, 0x5e, 0xa7, 0xb3}
 
 // BuildApproveCallData encodes an ERC-20 approve(spender, amount) call.
 func BuildApproveCallData(spender string, amount *big.Int) ([]byte, error) {

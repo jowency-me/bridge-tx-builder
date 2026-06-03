@@ -142,8 +142,14 @@ func (c *Client) Quote(ctx context.Context, params QuoteParams) (*QuoteResponse,
 		return nil, fmt.Errorf("debridge quote failed: status %d, resp body: %s", resp.StatusCode, string(body))
 	}
 
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("lifi quote failed: status %d, resp body read error: %w", resp.StatusCode, err)
+	}
+	// log.Printf("%s", string(body))
+
 	var qr QuoteResponse
-	if err := json.NewDecoder(resp.Body).Decode(&qr); err != nil {
+	if err := json.Unmarshal(body, &qr); err != nil {
 		return nil, fmt.Errorf("debridge quote decode: %w", err)
 	}
 	return &qr, nil
@@ -167,7 +173,11 @@ func (c *Client) Status(ctx context.Context, txID string) (*StatusResponse, erro
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("debridge status failed: status %d", resp.StatusCode)
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("debridge status failed: status %d, resp body read error: %w", resp.StatusCode, err)
+		}
+		return nil, fmt.Errorf("debridge status failed: status %d, resp body: %s", resp.StatusCode, string(body))
 	}
 
 	var sr StatusResponse

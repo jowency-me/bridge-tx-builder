@@ -3,6 +3,7 @@ package debridge
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -40,10 +41,13 @@ func TestClient_Status(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	_, err := c.Status(ctx, "0x1234567890123456789012345678901234567890123456789012345678901234")
+	rsp, err := c.Status(ctx, "0x4c664e09322b01629d932453a5cf93d16fb8d57443d1f0ba0a722d8141b9afaa")
 	if err != nil {
-		t.Skipf("real API unavailable: %v", err)
+		log.Fatalf("status failed: %v", err)
 	}
+
+	buf, _ := json.MarshalIndent(rsp, "", "  ")
+	log.Printf("%s", string(buf))
 }
 
 func TestClient_Quote_RequestParams(t *testing.T) {

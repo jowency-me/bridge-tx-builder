@@ -211,6 +211,21 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error)
 		EstimateFee: estimateFee,
 	}
 
+	// Populate gas price fields from Transaction if provided
+	if qr.Transaction.GasPrice != "" {
+		gasPrice, err := decimal.NewFromString(qr.Transaction.GasPrice)
+		if err == nil && !gasPrice.IsZero() {
+			if domain.SupportsEIP1559(req.FromToken.ChainID) {
+				// For EIP-1559 chains, use the same gas price for both tip and fee cap
+				quote.GasTipCap = gasPrice
+				quote.GasFeeCap = gasPrice
+			} else {
+				// For legacy chains, use GasPrice
+				quote.GasPrice = gasPrice
+			}
+		}
+	}
+
 	// 0x uses the /swap/allowance-holder/quote endpoint; Transaction.To is the
 	// allowance-holder contract that needs ERC-20 approval for non-native tokens.
 	if txTo != "" && req.FromToken.Address != "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE" {

@@ -260,7 +260,9 @@ func mapQuote(qr *QuoteResponse, reqs ...domain.QuoteRequest) (*domain.Quote, er
 		return nil, fmt.Errorf("%s: quote is missing TxData", Name)
 	}
 
-	return &domain.Quote{
+	fromChainID := numericToChainID(strconv.Itoa(qr.Action.FromChainID))
+
+	quote := &domain.Quote{
 		ID:              qr.ID,
 		FromToken:       mapToken(qr.Action.FromToken, qr.Action.FromChainID),
 		ToToken:         mapToken(qr.Action.ToToken, qr.Action.ToChainID),
@@ -278,7 +280,24 @@ func mapQuote(qr *QuoteResponse, reqs ...domain.QuoteRequest) (*domain.Quote, er
 		EstimateFee:     estFee,
 		ApprovalAddress: qr.Estimate.ApprovalAddress,
 		AllowanceNeeded: allowanceNeeded,
-	}, nil
+	}
+
+	// Populate gas price fields from TransactionRequest if provided
+	if qr.TransactionRequest.GasPrice != "" {
+		gasPrice, err := decimal.NewFromString(qr.TransactionRequest.GasPrice)
+		if err == nil && !gasPrice.IsZero() {
+			if domain.SupportsEIP1559(fromChainID) {
+				// For EIP-1559 chains, use the same gas price for both tip and fee cap
+				quote.GasTipCap = gasPrice
+				quote.GasFeeCap = gasPrice
+			} else {
+				// For legacy chains, use GasPrice
+				quote.GasPrice = gasPrice
+			}
+		}
+	}
+
+	return quote, nil
 }
 
 func mapStatus(sr *StatusResponse) *domain.Status {

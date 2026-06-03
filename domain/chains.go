@@ -50,7 +50,7 @@ var chainRegistry = map[ChainID]chainMeta{
 	ChainBase:      {Name: "Base", IsEVM: true, EIP1559: true},
 	ChainSolana:    {Name: "Solana", IsEVM: false},
 	ChainTron:      {Name: "Tron", IsEVM: false},
-	ChainBSC:       {Name: "BNB Smart Chain", IsEVM: true, EIP1559: false},
+	ChainBSC:       {Name: "BNB Smart Chain", IsEVM: true, EIP1559: true},
 	ChainPolygon:   {Name: "Polygon", IsEVM: true, EIP1559: true},
 	ChainArbitrum:  {Name: "Arbitrum One", IsEVM: true, EIP1559: true},
 	ChainOptimism:  {Name: "Optimism", IsEVM: true, EIP1559: true},

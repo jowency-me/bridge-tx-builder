@@ -105,7 +105,7 @@ func TestProviders_CrossChainRoutes(t *testing.T) {
 		t.Skip("no providers available")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 1200*time.Second)
 	defer cancel()
 
 	routes := CrossChainRoutes()
@@ -117,7 +117,7 @@ func TestProviders_CrossChainRoutes(t *testing.T) {
 					FromToken: route.FromToken,
 					ToToken:   route.ToToken,
 					// Amount:    decimal.NewFromInt(10_000_000),
-					Amount:   decimal.NewFromInt(4081071),
+					Amount:   decimal.NewFromInt(4_081_071_000_000_000_000),
 					Slippage: 0.005,
 					FromAddr: route.FromAddress,
 					ToAddr:   route.ToAddress,

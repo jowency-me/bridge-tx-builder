@@ -214,9 +214,9 @@ type CrossChainRoute struct {
 // CrossChainRoutes returns all supported cross-chain route combinations for testing.
 func CrossChainRoutes() []CrossChainRoute {
 	return []CrossChainRoute{
-		{Name: "Solana→BSC", FromToken: usdtSolana, ToToken: usdtBSC, FromAddress: "84ib5yDqx6E6Mmeartg1xWRjaJ4TDJUudooH9g528qgw", ToAddress: "0xBc3eDD5b9c134D13E3b69fd13DEC2309Bb45f566"},
+		// {Name: "Solana→BSC", FromToken: usdtSolana, ToToken: usdtBSC, FromAddress: "84ib5yDqx6E6Mmeartg1xWRjaJ4TDJUudooH9g528qgw", ToAddress: "0xBc3eDD5b9c134D13E3b69fd13DEC2309Bb45f566"},
 		// {Name: "ETH→Base", FromToken: usdcEthereum, ToToken: usdcBase},
-		// {Name: "BSC→Solana", FromToken: usdtBSC, ToToken: usdtSolana},
+		{Name: "BSC→Solana", FromToken: usdtBSC, ToToken: usdtSolana, FromAddress: "0xBc3eDD5b9c134D13E3b69fd13DEC2309Bb45f566", ToAddress: "84ib5yDqx6E6Mmeartg1xWRjaJ4TDJUudooH9g528qgw"},
 		// {Name: "Solana→Base", FromToken: usdtSolana, ToToken: usdcBase},
 	}
 }

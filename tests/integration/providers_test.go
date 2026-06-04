@@ -118,7 +118,7 @@ func TestProviders_CrossChainRoutes(t *testing.T) {
 				req := domain.QuoteRequest{
 					FromToken: route.FromToken,
 					ToToken:   route.ToToken,
-					// Amount:    decimal.NewFromInt(10_000_000),
+					// Amount:    decimal.NewFromInt(2_000_000),
 					Amount:   decimal.NewFromInt(4_081_071_000_000_000_000),
 					Slippage: 0.005,
 					FromAddr: route.FromAddress,

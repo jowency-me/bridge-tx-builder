@@ -177,34 +177,32 @@ func mapQuote(qr *QuoteResponse, reqs ...domain.QuoteRequest) (*domain.Quote, er
 		minAmt = decimal.Zero
 	}
 
-	var gas uint64
+	gas := decimal.Zero
+	gasPrice := decimal.Zero
+	gasLimit := decimal.Zero
 	if len(qr.Estimate.GasCosts) > 0 && qr.Estimate.GasCosts[0].Estimate != "" {
-		g, err := strconv.ParseUint(qr.Estimate.GasCosts[0].Estimate, 10, 64)
+		gas, err = parseHexOrDecimal(qr.Estimate.GasCosts[0].Estimate)
 		if err != nil {
 			return nil, fmt.Errorf("%s: parse gas cost: %w", Name, err)
 		}
-		gas = g
-	}
-	gasLimit := decimal.Zero
-	if qr.TransactionRequest.GasLimit != "" {
-		gLimitStr := qr.TransactionRequest.GasLimit
-		if strings.HasPrefix(gLimitStr, "0x") || strings.HasPrefix(gLimitStr, "0X") {
-			g, err := strconv.ParseInt(gLimitStr, 0, 64)
-			if err != nil {
-				return nil, fmt.Errorf("%s: parse gas limit: %w", Name, err)
-			}
-			gasLimit = decimal.NewFromInt(g)
-		} else {
-			g, err := strconv.ParseUint(gLimitStr, 10, 64)
-			if err != nil {
-				return nil, fmt.Errorf("%s: parse gas limit: %w", Name, err)
-			}
-			gasLimit = decimal.NewFromUint64(g)
+		gasPrice, err = parseHexOrDecimal(qr.Estimate.GasCosts[0].Price)
+		if err != nil {
+			return nil, fmt.Errorf("%s: parse gas price: %w", Name, err)
+		}
+		gasLimit, err = parseHexOrDecimal(qr.Estimate.GasCosts[0].Limit)
+		if err != nil {
+			return nil, fmt.Errorf("%s: parse gas limit: %w", Name, err)
 		}
 	}
 
-	if gas == 0 && !gasLimit.IsZero() {
-		gas = gasLimit.BigInt().Uint64()
+	if !gasLimit.IsZero() && qr.TransactionRequest.GasLimit != "" {
+		gasLimit, err = parseHexOrDecimal(qr.TransactionRequest.GasLimit)
+		if err != nil {
+			return nil, fmt.Errorf("%s: parse gas limit: %w", Name, err)
+		}
+		if gas.IsZero() {
+			gas = gasLimit
+		}
 	}
 
 	var txData []byte
@@ -265,8 +263,6 @@ func mapQuote(qr *QuoteResponse, reqs ...domain.QuoteRequest) (*domain.Quote, er
 		return nil, fmt.Errorf("%s: quote is missing TxData", Name)
 	}
 
-	fromChainID := numericToChainID(strconv.Itoa(qr.Action.FromChainID))
-
 	quote := &domain.Quote{
 		ID:              qr.ID,
 		FromToken:       mapToken(qr.Action.FromToken, qr.Action.FromChainID),
@@ -281,26 +277,14 @@ func mapQuote(qr *QuoteResponse, reqs ...domain.QuoteRequest) (*domain.Quote, er
 		To:              qr.TransactionRequest.To,
 		TxData:          txData,
 		TxValue:         txValue,
-		EstimateGas:     decimal.NewFromUint64(gas),
-		GasLimit:        gasLimit,
+		EstimateGas:     gas,
 		EstimateFee:     estFee,
+		GasLimit:        gasLimit,
+		GasPrice:        gasPrice,
+		GasTipCap:       gasPrice,
+		GasFeeCap:       gasPrice,
 		ApprovalAddress: qr.Estimate.ApprovalAddress,
 		AllowanceNeeded: allowanceNeeded,
-	}
-
-	// Populate gas price fields from TransactionRequest if provided
-	if qr.TransactionRequest.GasPrice != "" {
-		gasPrice, err := decimal.NewFromString(qr.TransactionRequest.GasPrice)
-		if err == nil && !gasPrice.IsZero() {
-			if domain.SupportsEIP1559(fromChainID) {
-				// For EIP-1559 chains, use the same gas price for both tip and fee cap
-				quote.GasTipCap = gasPrice
-				quote.GasFeeCap = gasPrice
-			} else {
-				// For legacy chains, use GasPrice
-				quote.GasPrice = gasPrice
-			}
-		}
 	}
 
 	return quote, nil

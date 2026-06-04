@@ -72,7 +72,7 @@ func TestProvider_Quote_Success(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "debridge", quote.Provider)
 	assert.Equal(t, int64(999_000), quote.ToAmount.IntPart())
-	assert.Equal(t, uint64(0), quote.EstimateGas) // no gasLimit in real API
+	assert.True(t, decimal.NewFromInt(0).Equal(quote.EstimateGas)) // no gasLimit in real API
 	assert.Equal(t, "0xRouter", quote.ApprovalAddress)
 	require.NotNil(t, quote.AllowanceNeeded)
 	assert.True(t, quote.AllowanceNeeded.Equal(decimal.NewFromInt(1_000_000)))

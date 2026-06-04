@@ -64,7 +64,8 @@ func TestBuilder_Build_EIP1559(t *testing.T) {
 		To:          "0x1111111111111111111111111111111111111111",
 		TxData:      common.Hex2Bytes("deadbeef"),
 		TxValue:     decimal.Zero,
-		EstimateGas: 200000,
+		GasLimit:    decimal.NewFromInt(200000),
+		EstimateGas: decimal.Zero,
 		GasTipCap:   decimal.NewFromInt(1e9),
 		GasFeeCap:   decimal.NewFromInt(20e9),
 	}
@@ -97,7 +98,8 @@ func TestBuilder_Build_Legacy(t *testing.T) {
 		To:          "0x2222222222222222222222222222222222222222",
 		TxData:      common.Hex2Bytes("cafebabe"),
 		TxValue:     decimal.NewFromInt(1000),
-		EstimateGas: 100000,
+		GasLimit:    decimal.NewFromInt(100000),
+		EstimateGas: decimal.Zero,
 		GasPrice:    decimal.NewFromInt(5e9),
 	}
 
@@ -138,7 +140,8 @@ func TestBuilder_Build_LowercaseFrom(t *testing.T) {
 		To:          "0x1111111111111111111111111111111111111111",
 		TxData:      common.Hex2Bytes("deadbeef"),
 		TxValue:     decimal.Zero,
-		EstimateGas: 200000,
+		GasLimit:    decimal.NewFromInt(200000),
+		EstimateGas: decimal.Zero,
 		GasTipCap:   decimal.NewFromInt(1e9),
 		GasFeeCap:   decimal.NewFromInt(20e9),
 	}
@@ -165,7 +168,8 @@ func TestBuilder_Build_GasLimitTooHigh(t *testing.T) {
 		To:          "0x1111111111111111111111111111111111111111",
 		TxData:      common.Hex2Bytes("deadbeef"),
 		TxValue:     decimal.Zero,
-		EstimateGas: maxGasLimit + 1,
+		GasLimit:    decimal.NewFromInt(200000),
+		EstimateGas: decimal.Zero,
 		GasTipCap:   decimal.NewFromInt(1e9),
 		GasFeeCap:   decimal.NewFromInt(20e9),
 	}

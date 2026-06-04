@@ -63,7 +63,7 @@ func TestProvider_Quote_Success(t *testing.T) {
 	assert.Equal(t, "oo-999000", quote.ID)
 	assert.Equal(t, int64(999_000), quote.ToAmount.IntPart())
 	assert.Equal(t, "openocean", quote.Provider)
-	assert.Equal(t, uint64(200_000), quote.EstimateGas)
+	assert.True(t, decimal.NewFromInt(200_000).Equal(quote.EstimateGas))
 }
 
 func TestProvider_Quote_HTTPError(t *testing.T) {

@@ -79,7 +79,7 @@ func TestProvider_Quote_Success(t *testing.T) {
 	assert.Equal(t, int64(995_000), quote.MinAmount.IntPart())
 	assert.Equal(t, "lifi", quote.Provider)
 	assert.Equal(t, 2, len(quote.Route))
-	assert.Equal(t, uint64(50_000), quote.EstimateGas)
+	assert.True(t, decimal.NewFromInt(50_000).Equal(quote.EstimateGas))
 
 	// Verify approval fields: when Estimate.ApprovalAddress is set,
 	// AllowanceNeeded should be set to fromAmount.
@@ -296,7 +296,7 @@ func TestMapQuote_NilGasCostsFallsBackToGasLimit(t *testing.T) {
 	}
 	quote, err := mapQuote(qr)
 	require.NoError(t, err)
-	require.Equal(t, uint64(300000), quote.EstimateGas)
+	require.True(t, decimal.NewFromInt(300000).Equal(quote.EstimateGas))
 }
 
 func TestMapQuote_NilGasCostsFallsBackToHexGasLimit(t *testing.T) {
@@ -324,7 +324,7 @@ func TestMapQuote_NilGasCostsFallsBackToHexGasLimit(t *testing.T) {
 	}
 	quote, err := mapQuote(qr)
 	require.NoError(t, err)
-	require.Equal(t, uint64(0x447b4), quote.EstimateGas)
+	require.True(t, decimal.NewFromInt(0x447b4).Equal(quote.EstimateGas))
 }
 
 func TestMapQuote_NonZeroTxValue(t *testing.T) {

@@ -182,7 +182,8 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error)
 		Provider:    string(Name),
 		Route:       route,
 		Deadline:    time.Now().Add(time.Duration(routeInfo.Duration) * time.Second),
-		EstimateGas: gas,
+		EstimateGas: decimal.NewFromInt(int64(gas)),
+		GasLimit:    decimal.Zero,
 		EstimateFee: estFee,
 	}, nil
 }

@@ -55,7 +55,8 @@ type Quote struct {
 	To              string          // target contract / router address
 	TxData          []byte          // chain-specific call data (EVM calldata, Solana instruction data, Tron contract data)
 	TxValue         decimal.Decimal // native value to send
-	EstimateGas     uint64
+	EstimateGas     decimal.Decimal
+	GasLimit        decimal.Decimal
 	EstimateFee     decimal.Decimal
 	GasPrice        decimal.Decimal  // for legacy EVM transactions
 	GasTipCap       decimal.Decimal  // for EIP-1559 priority fee

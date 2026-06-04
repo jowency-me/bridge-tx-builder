@@ -118,7 +118,7 @@ func (b *Builder) Build(ctx context.Context, quote domain.Quote, from string, si
 		RefBlockHash:  refBlockHash,
 		Expiration:    0,
 		Timestamp:     0,
-		FeeLimit:      int64(quote.EstimateGas),
+		FeeLimit:      int64(quote.EstimateGas.BigInt().Uint64()),
 	}
 
 	tx := &core.Transaction{RawData: rawData}
@@ -138,7 +138,7 @@ func (b *Builder) Build(ctx context.Context, quote domain.Quote, from string, si
 		To:      quote.To,
 		Data:    rawBytes,
 		Value:   quote.TxValue,
-		Gas:     quote.EstimateGas,
+		Gas:     quote.EstimateGas.BigInt().Uint64(),
 	}, nil
 }
 

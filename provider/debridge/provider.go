@@ -182,7 +182,9 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error)
 		To:          qr.Tx.To,
 		TxData:      txData,
 		TxValue:     txValue,
-		EstimateFee: estFee,
+		EstimateGas: decimal.Zero,
+		GasLimit:    decimal.Zero,
+		EstimateFee:  estFee,
 	}
 
 	if qr.Tx.To != "" &&

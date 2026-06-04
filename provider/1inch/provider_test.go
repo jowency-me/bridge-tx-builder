@@ -63,7 +63,7 @@ func TestProvider_Quote_Success(t *testing.T) {
 	assert.Equal(t, int64(1_000_000), quote.FromAmount.IntPart())
 	assert.Equal(t, "1inch", quote.Provider)
 	assert.Equal(t, 1, len(quote.Route))
-	assert.Equal(t, uint64(150_000), quote.EstimateGas)
+	assert.True(t, decimal.NewFromInt(150_000).Equal(quote.EstimateGas))
 	assert.Equal(t, "0xRouter", quote.To)
 	assert.Equal(t, []byte{0xde, 0xad, 0xbe, 0xef}, quote.TxData)
 	// Verify token mapping from API response

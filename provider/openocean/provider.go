@@ -160,6 +160,8 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error)
 		}
 	}
 
+	gas := qr.Data.EstimatedGasUint()
+
 	quote := &domain.Quote{
 		ID:          fmt.Sprintf("oo-%s", qr.Data.OutAmount),
 		FromToken:   req.FromToken,
@@ -173,7 +175,8 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error)
 		To:          qr.Data.To,
 		TxData:      txData,
 		TxValue:     txValue,
-		EstimateGas: qr.Data.EstimatedGasUint(),
+		EstimateGas: decimal.NewFromInt(int64(gas)),
+		GasLimit:    decimal.Zero,
 	}
 
 	if qr.Data.To != "" && req.FromToken.Address != "" &&

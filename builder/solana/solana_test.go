@@ -43,7 +43,7 @@ func TestBuilder_Build(t *testing.T) {
 		Provider:    "rango",
 		FromAmount:  decimal.NewFromInt(1_000_000),
 		ToAmount:    decimal.NewFromInt(999_000),
-		EstimateGas: 5000,
+		EstimateGas: decimal.NewFromInt(5000),
 		BlockHash:   "11111111111111111111111111111111",
 		To:          solana.SystemProgramID.String(),
 	}
@@ -72,7 +72,7 @@ func TestBuilder_Build_WithTxData(t *testing.T) {
 		Provider:    "rango",
 		FromAmount:  decimal.NewFromInt(1_000_000),
 		ToAmount:    decimal.NewFromInt(999_000),
-		EstimateGas: 5000,
+		EstimateGas: decimal.NewFromInt(5000),
 		TxData:      []byte{0xde, 0xad, 0xbe, 0xef},
 		BlockHash:   "11111111111111111111111111111111",
 		To:          solana.SystemProgramID.String(),

@@ -146,7 +146,9 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error)
 				Action:   "bridge",
 			},
 		},
-		Deadline:    time.Now().Add(10 * time.Minute),
-		EstimateFee: fee,
+		Deadline:     time.Now().Add(10 * time.Minute),
+		EstimateGas:  decimal.Zero,
+		GasLimit:     decimal.Zero,
+		EstimateFee:  fee,
 	}, nil
 }

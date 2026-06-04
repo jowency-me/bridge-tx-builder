@@ -102,7 +102,8 @@ func TestExample_EVMBuildAndSimulatePublicMainnet(t *testing.T) {
 		ToAmount:    decimal.NewFromInt(1),
 		MinAmount:   decimal.NewFromInt(1),
 		Slippage:    0.005,
-		EstimateGas: 300000,
+		EstimateGas: decimal.NewFromInt(300000),
+		GasLimit:   decimal.NewFromInt(300000),
 		GasTipCap:   decimal.NewFromBigInt(gasTipCap, 0),
 		GasFeeCap:   decimal.NewFromBigInt(gasFeeCap, 0),
 	}
@@ -161,7 +162,8 @@ func TestExample_SolanaBuildAndSimulatePublicMainnet(t *testing.T) {
 		ToAmount:    decimal.NewFromInt(1),
 		MinAmount:   decimal.NewFromInt(1),
 		Slippage:    0.005,
-		EstimateGas: 5000,
+		EstimateGas: decimal.NewFromInt(5000),
+		GasLimit:   decimal.NewFromInt(5000),
 		BlockHash:   blockhash.Value.Blockhash.String(),
 	}
 
@@ -212,7 +214,8 @@ func TestExample_TronBuildAndSimulatePublicMainnet(t *testing.T) {
 		ToAmount:    decimal.NewFromInt(1),
 		MinAmount:   decimal.NewFromInt(1),
 		Slippage:    0.005,
-		EstimateGas: 200000,
+		EstimateGas: decimal.NewFromInt(200000),
+		GasLimit:   decimal.NewFromInt(200000),
 		BlockHash:   blockID,
 		BlockHeight: blockHeight,
 	}
@@ -254,7 +257,8 @@ func TestExample_RouterFullFlowEVMMainnet(t *testing.T) {
 		ToAmount:    decimal.NewFromInt(1),
 		MinAmount:   decimal.NewFromInt(1),
 		Slippage:    0.005,
-		EstimateGas: 300000,
+		EstimateGas: decimal.NewFromInt(300000),
+		GasLimit:   decimal.NewFromInt(300000),
 		GasTipCap:   decimal.NewFromBigInt(gasTipCap, 0),
 		GasFeeCap:   decimal.NewFromBigInt(gasFeeCap, 0),
 	}

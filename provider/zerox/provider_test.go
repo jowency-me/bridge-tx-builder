@@ -69,7 +69,7 @@ func TestProvider_Quote_Success(t *testing.T) {
 	assert.Equal(t, int64(999_000), quote.ToAmount.IntPart())
 	assert.Equal(t, "0x", quote.Provider)
 	assert.Equal(t, 2, len(quote.Route))
-	assert.Equal(t, uint64(200_000), quote.EstimateGas)
+	assert.True(t, decimal.NewFromInt(200_000).Equal(quote.EstimateGas))
 	assert.True(t, quote.EstimateFee.Equal(decimal.NewFromInt(500)))
 }
 
@@ -342,7 +342,7 @@ func TestMapQuote_TransactionData(t *testing.T) {
 	assert.Equal(t, "0xRouter", quote.To)
 	assert.Equal(t, []byte{0xca, 0xfe, 0xba, 0xbe}, quote.TxData)
 	assert.True(t, quote.TxValue.Equal(decimal.NewFromInt(1000)))
-	assert.Equal(t, uint64(200_000), quote.EstimateGas)
+	assert.True(t, decimal.NewFromInt(200_000).Equal(quote.EstimateGas))
 }
 
 func TestMapQuote_InvalidSellAmount(t *testing.T) {

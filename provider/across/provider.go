@@ -230,7 +230,8 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error)
 		To:          target,
 		TxData:      txData,
 		TxValue:     txValue,
-		EstimateGas: gas,
+		EstimateGas: decimal.NewFromInt(int64(gas)),
+		GasLimit:    decimal.Zero,
 	}
 
 	// In the new API, approval info comes from Checks.Allowance

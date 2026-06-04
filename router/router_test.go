@@ -188,7 +188,7 @@ func TestRouter_BuildTransaction(t *testing.T) {
 		To:          "0x1111111111111111111111111111111111111111",
 		TxData:      []byte{0xde, 0xad},
 		TxValue:     decimal.Zero,
-		EstimateGas: 200000,
+		EstimateGas: decimal.NewFromInt(200000),
 		FromToken:   domain.Token{Symbol: "ETH", Address: "0xA", Decimals: 18, ChainID: domain.ChainEthereum},
 		ToToken:     domain.Token{Symbol: "USDC", Address: "0xB", Decimals: 6, ChainID: domain.ChainBase},
 		FromAmount:  decimal.NewFromInt(1_000_000),

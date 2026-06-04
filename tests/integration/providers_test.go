@@ -4,6 +4,8 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
+	"log"
 	"os"
 	"testing"
 	"time"
@@ -129,6 +131,8 @@ func TestProviders_CrossChainRoutes(t *testing.T) {
 					return
 				}
 				require.NotNil(t, quote)
+				buf, _ := json.MarshalIndent(quote, "", "  ")
+				log.Printf("%s", string(buf))
 
 				assert.NotEmpty(t, quote.ID, "ID must be set")
 				assert.Equal(t, p.Name(), quote.Provider)

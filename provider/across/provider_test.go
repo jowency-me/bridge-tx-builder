@@ -73,7 +73,7 @@ func TestProvider_Quote_Success(t *testing.T) {
 	assert.Equal(t, int64(990_000), quote.MinAmount.IntPart())
 	assert.Equal(t, "0xSpokeTarget", quote.To)
 	assert.Equal(t, []byte{0xde, 0xad, 0xbe, 0xef}, quote.TxData)
-	assert.Equal(t, uint64(250_000), quote.EstimateGas)
+	assert.True(t, decimal.NewFromInt(250_000).Equal(quote.EstimateGas))
 	assert.True(t, quote.TxValue.IsZero())
 	assert.Equal(t, 1, len(quote.Route))
 	assert.Equal(t, "bridge", quote.Route[0].Action)
@@ -175,8 +175,8 @@ func TestMapQuote_SwapTxData(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "0xSpoke", quote.To)
 	assert.Equal(t, []byte{0xde, 0xad, 0xbe, 0xef}, quote.TxData)
-	assert.Equal(t, int64(123), quote.TxValue.IntPart())
-	assert.Equal(t, uint64(210000), quote.EstimateGas)
+	assert.True(t, decimal.NewFromInt(123).Equal(quote.TxValue))
+	assert.True(t, decimal.NewFromInt(210000).Equal(quote.EstimateGas))
 }
 
 func TestMapQuote_InvalidSwapTxData(t *testing.T) {

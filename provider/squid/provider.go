@@ -164,12 +164,18 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error)
 		}
 		gas = g
 	}
-	if gas == 0 && qr.Route.TransactionRequest.GasLimit != "" {
+
+	gasLimit := decimal.Zero
+	if qr.Route.TransactionRequest.GasLimit != "" {
 		g, err := strconv.ParseUint(qr.Route.TransactionRequest.GasLimit, 10, 64)
 		if err != nil {
 			return nil, fmt.Errorf("%s: parse gas limit: %w", Name, err)
 		}
-		gas = g
+		gasLimit = decimal.NewFromUint64(g)
+	}
+
+	if gas == 0 && !gasLimit.IsZero() {
+		gas = gasLimit.BigInt().Uint64()
 	}
 
 	var txData []byte
@@ -226,7 +232,8 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error)
 		To:          qr.Route.TransactionRequest.Target,
 		TxData:      txData,
 		TxValue:     txValue,
-		EstimateGas: gas,
+		EstimateGas: decimal.NewFromInt(int64(gas)),
+		GasLimit:    gasLimit,
 		EstimateFee: estFee,
 	}
 

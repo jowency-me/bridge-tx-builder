@@ -215,6 +215,8 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest, fromChain, toChain str
 		Deadline:    deadline,
 		To:          qr.InboundAddress,
 		TxData:      txData,
+		EstimateGas: decimal.Zero,
+		GasLimit:    decimal.Zero,
 		EstimateFee: feeAmt,
 	}
 

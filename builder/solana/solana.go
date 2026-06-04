@@ -56,7 +56,7 @@ func (b *Builder) Build(ctx context.Context, quote domain.Quote, from string, si
 		To:      quote.To,
 		Data:    serialized,
 		Value:   quote.TxValue,
-		Gas:     quote.EstimateGas,
+		Gas:     quote.EstimateGas.BigInt().Uint64(),
 	}, nil
 }
 

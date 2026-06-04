@@ -87,7 +87,7 @@ func TestProvider_Quote_Success(t *testing.T) {
 	assert.Equal(t, int64(995_000), quote.MinAmount.IntPart())
 	assert.Equal(t, "squid", quote.Provider)
 	assert.Equal(t, 2, len(quote.Route))
-	assert.Equal(t, uint64(50_000), quote.EstimateGas)
+	assert.True(t, decimal.NewFromInt(50_000).Equal(quote.EstimateGas))
 	assert.Equal(t, "0xRouter", quote.ApprovalAddress)
 	require.NotNil(t, quote.AllowanceNeeded)
 	assert.True(t, quote.AllowanceNeeded.Equal(decimal.NewFromInt(1_000_000)))
@@ -334,7 +334,7 @@ func TestProvider_Quote_EmptyGasCosts(t *testing.T) {
 
 	quote, err := p.Quote(ctx, req)
 	require.NoError(t, err)
-	assert.Equal(t, uint64(200_000), quote.EstimateGas)
+	assert.True(t, decimal.NewFromInt(200_000).Equal(quote.EstimateGas))
 }
 
 func TestProvider_Quote_EmptyFeeCosts(t *testing.T) {
@@ -432,7 +432,7 @@ func TestProvider_Quote_EmptyGasCostEstimate(t *testing.T) {
 	quote, err := p.Quote(ctx, req)
 	require.NoError(t, err)
 	// Should fall back to GasLimit since GasCosts[0].GasLimit is empty
-	assert.Equal(t, uint64(200_000), quote.EstimateGas)
+	assert.True(t, decimal.NewFromInt(200_000).Equal(quote.EstimateGas))
 }
 
 func TestProvider_Quote_ApprovalSkippedForNativeToken(t *testing.T) {

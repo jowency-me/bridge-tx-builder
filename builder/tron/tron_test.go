@@ -61,7 +61,7 @@ func TestBuilder_Build(t *testing.T) {
 		To:          to,
 		TxData:      []byte{0xde, 0xad, 0xbe, 0xef},
 		TxValue:     decimal.Zero,
-		EstimateGas: 200000,
+		EstimateGas: decimal.NewFromInt(200000),
 		BlockHash:   "0000000000000000000000000000000000000000000000000000000000000001",
 		BlockHeight: 1000000,
 	}
@@ -117,7 +117,7 @@ func TestBuilder_Build_MissingTxData(t *testing.T) {
 		To:          to,
 		TxData:      nil,
 		TxValue:     decimal.Zero,
-		EstimateGas: 200000,
+		EstimateGas: decimal.NewFromInt(200000),
 		BlockHash:   "0000000000000000000000000000000000000000000000000000000000000001",
 		BlockHeight: 1,
 	}
@@ -144,7 +144,7 @@ func TestBuilder_Build_InvalidFromAddress(t *testing.T) {
 		Provider:    "lifi",
 		To:          to,
 		TxData:      []byte{0xde, 0xad, 0xbe, 0xef},
-		EstimateGas: 200000,
+		EstimateGas: decimal.NewFromInt(200000),
 		BlockHash:   "0000000000000000000000000000000000000000000000000000000000000001",
 		BlockHeight: 1,
 	}
@@ -168,7 +168,7 @@ func TestBuilder_Build_InvalidToAddress(t *testing.T) {
 		Provider:    "lifi",
 		To:          "not-a-valid-base58",
 		TxData:      []byte{0xde, 0xad, 0xbe, 0xef},
-		EstimateGas: 200000,
+		EstimateGas: decimal.NewFromInt(200000),
 		BlockHash:   "0000000000000000000000000000000000000000000000000000000000000001",
 		BlockHeight: 1,
 	}
@@ -197,7 +197,7 @@ func TestBuilder_Build_ValueOverflow(t *testing.T) {
 		To:          to,
 		TxData:      []byte{0xde, 0xad, 0xbe, 0xef},
 		TxValue:     decimal.New(1, 30),
-		EstimateGas: 200000,
+		EstimateGas: decimal.NewFromInt(200000),
 		BlockHash:   "0000000000000000000000000000000000000000000000000000000000000001",
 		BlockHeight: 1,
 	}
@@ -226,7 +226,7 @@ func TestBuilder_Build_InvalidBlockHashHex(t *testing.T) {
 		To:          to,
 		TxData:      []byte{0xde, 0xad, 0xbe, 0xef},
 		TxValue:     decimal.Zero,
-		EstimateGas: 200000,
+		EstimateGas: decimal.NewFromInt(200000),
 		BlockHash:   "not-hex!",
 		BlockHeight: 1,
 	}
@@ -255,7 +255,7 @@ func TestBuilder_Build_BlockHashTooShort(t *testing.T) {
 		To:          to,
 		TxData:      []byte{0xde, 0xad, 0xbe, 0xef},
 		TxValue:     decimal.Zero,
-		EstimateGas: 200000,
+		EstimateGas: decimal.NewFromInt(200000),
 		BlockHash:   "0x1234",
 		BlockHeight: 1,
 	}

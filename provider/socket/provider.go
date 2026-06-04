@@ -175,7 +175,9 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error)
 		Slippage:   ar.Slippage,
 		Provider:   string(Name),
 		Route:      routeSteps,
-		Deadline:   deadline,
+		Deadline:    deadline,
+		EstimateGas: decimal.Zero,
+		GasLimit:    decimal.Zero,
 	}
 
 	if ar.ApprovalData != nil && ar.ApprovalData.SpenderAddress != "" {

@@ -326,7 +326,8 @@ func TestClient_Status_JSONDeserialization(t *testing.T) {
 func TestClient_Status(t *testing.T) {
 	c := NewClient("4bc09300-9dd0-4c9f-ad66-ade69eff2417.8ce590bb-7d2f-4e94-b53b-5b3847771b04")
 
-	resp, err := c.Status(context.Background(), "4eE9XJzotFiAVe58Jtdu1fQ9UeFSh2xcXXtbmWYpKh5kCoJMTirtsgCh2Yeoj2WDEe1gXMZsC27ftnUtVAcjvJt9")
+	// resp, err := c.Status(context.Background(), "4eE9XJzotFiAVe58Jtdu1fQ9UeFSh2xcXXtbmWYpKh5kCoJMTirtsgCh2Yeoj2WDEe1gXMZsC27ftnUtVAcjvJt9")
+	resp, err := c.Status(context.Background(), "0xb1d6504b30aa8bc7f132f3fb997df0123de084a36449743ad764c64632ba47b2")
 	if err != nil {
 		t.Fatal(err)
 	}

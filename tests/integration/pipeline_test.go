@@ -49,7 +49,8 @@ func TestPipeline_QuoteBuildSimulate(t *testing.T) {
 		To:          usdcEthereum.Address,
 		TxData:      evmTransferCalldata("0x1111111111111111111111111111111111111111", big.NewInt(1)),
 		TxValue:     decimal.Zero,
-		EstimateGas: 300000,
+		EstimateGas:  decimal.NewFromInt(300000),
+		GasLimit:    decimal.NewFromInt(300000),
 		GasTipCap:   decimal.NewFromBigInt(tipCap, 0),
 		GasFeeCap:   decimal.NewFromBigInt(feeCap, 0),
 	}
@@ -131,7 +132,8 @@ func TestPipeline_ApprovalFlow(t *testing.T) {
 		To:              "0xRouterContract",
 		TxData:          evmTransferCalldata("0x1111111111111111111111111111111111111111", big.NewInt(1)),
 		TxValue:         decimal.Zero,
-		EstimateGas:     250000,
+		EstimateGas:     decimal.NewFromInt(250000),
+		GasLimit:        decimal.NewFromInt(250000),
 		ApprovalAddress: "0xSpenderContract",
 		AllowanceNeeded: &allowance,
 	}

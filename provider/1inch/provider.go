@@ -167,7 +167,8 @@ func mapQuote(qr *QuoteResponse, req domain.QuoteRequest) (*domain.Quote, error)
 		To:          qr.Tx.To,
 		TxData:      txData,
 		TxValue:     txValue,
-		EstimateGas: gas,
+		EstimateGas: decimal.NewFromInt(int64(gas)),
+		GasLimit:    decimal.Zero,
 	}
 
 	// Populate ApprovalAddress using the router address (Tx.To) as the ERC-20

@@ -91,9 +91,9 @@ func (b *Builder) Build(ctx context.Context, quote domain.Quote, from string, si
 	if quote.Nonce != nil {
 		nonce = *quote.Nonce
 	}
-	gasLimit := quote.EstimateGas
-	if gasLimit == 0 {
-		gasLimit = 300_000
+	gasLimit := uint64(300_000)
+	if !quote.GasLimit.IsZero() {
+		gasLimit = quote.GasLimit.BigInt().Uint64()
 	}
 	if gasLimit > maxGasLimit {
 		return nil, fmt.Errorf("gas limit %d exceeds maximum %d", gasLimit, maxGasLimit)

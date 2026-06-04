@@ -185,21 +185,26 @@ func mapQuote(qr *QuoteResponse, reqs ...domain.QuoteRequest) (*domain.Quote, er
 		}
 		gas = g
 	}
-	if gas == 0 && qr.TransactionRequest.GasLimit != "" {
+	gasLimit := decimal.Zero
+	if qr.TransactionRequest.GasLimit != "" {
 		gLimitStr := qr.TransactionRequest.GasLimit
 		if strings.HasPrefix(gLimitStr, "0x") || strings.HasPrefix(gLimitStr, "0X") {
 			g, err := strconv.ParseInt(gLimitStr, 0, 64)
 			if err != nil {
 				return nil, fmt.Errorf("%s: parse gas limit: %w", Name, err)
 			}
-			gas = uint64(g)
+			gasLimit = decimal.NewFromInt(g)
 		} else {
 			g, err := strconv.ParseUint(gLimitStr, 10, 64)
 			if err != nil {
 				return nil, fmt.Errorf("%s: parse gas limit: %w", Name, err)
 			}
-			gas = g
+			gasLimit = decimal.NewFromUint64(g)
 		}
+	}
+
+	if gas == 0 && !gasLimit.IsZero() {
+		gas = gasLimit.BigInt().Uint64()
 	}
 
 	var txData []byte
@@ -276,7 +281,8 @@ func mapQuote(qr *QuoteResponse, reqs ...domain.QuoteRequest) (*domain.Quote, er
 		To:              qr.TransactionRequest.To,
 		TxData:          txData,
 		TxValue:         txValue,
-		EstimateGas:     gas,
+		EstimateGas:     decimal.NewFromUint64(gas),
+		GasLimit:        gasLimit,
 		EstimateFee:     estFee,
 		ApprovalAddress: qr.Estimate.ApprovalAddress,
 		AllowanceNeeded: allowanceNeeded,

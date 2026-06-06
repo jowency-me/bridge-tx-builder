@@ -11,6 +11,7 @@ import (
 	"math"
 	"math/big"
 	"strings"
+	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/fbsobreira/gotron-sdk/pkg/address"
@@ -109,6 +110,13 @@ func (b *Builder) Build(ctx context.Context, quote domain.Quote, from string, si
 	}
 	refBlockHash := hashBytes[8:16]
 
+	now := time.Now()
+	expiration := quote.Deadline.UnixMilli()
+	if expiration == 0 {
+		// Fallback: 60 seconds from now if no deadline is set by the provider
+		expiration = now.UnixMilli() + 60000
+	}
+
 	rawData := &core.TransactionRaw{
 		Contract: []*core.Transaction_Contract{
 			{
@@ -118,8 +126,8 @@ func (b *Builder) Build(ctx context.Context, quote domain.Quote, from string, si
 		},
 		RefBlockBytes: refBlockBytes,
 		RefBlockHash:  refBlockHash,
-		Expiration:    0,
-		Timestamp:     0,
+		Expiration:    expiration,
+		Timestamp:     now.UnixMilli(),
 		FeeLimit:      int64(quote.EstimateGas.BigInt().Uint64()),
 	}
 

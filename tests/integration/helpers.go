@@ -190,6 +190,14 @@ var usdtBSC = domain.Token{
 	ChainID:  domain.ChainBSC,
 }
 
+// usdtTron is the USDT token on Tron.
+var usdtTron = domain.Token{
+	Symbol:   "USDT",
+	Address:  "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+	Decimals: 6,
+	ChainID:  domain.ChainTron,
+}
+
 // crossChainQuoteRequest returns a standard USDC ETH→Base quote request.
 func crossChainQuoteRequest(fromAddr string) domain.QuoteRequest {
 	return domain.QuoteRequest{
@@ -216,7 +224,8 @@ func CrossChainRoutes() []CrossChainRoute {
 	return []CrossChainRoute{
 		// {Name: "Solana→BSC", FromToken: usdtSolana, ToToken: usdtBSC, FromAddress: "84ib5yDqx6E6Mmeartg1xWRjaJ4TDJUudooH9g528qgw", ToAddress: "0xBc3eDD5b9c134D13E3b69fd13DEC2309Bb45f566"},
 		// {Name: "ETH→Base", FromToken: usdcEthereum, ToToken: usdcBase},
-		{Name: "BSC→Solana", FromToken: usdtBSC, ToToken: usdtSolana, FromAddress: "0xBc3eDD5b9c134D13E3b69fd13DEC2309Bb45f566", ToAddress: "84ib5yDqx6E6Mmeartg1xWRjaJ4TDJUudooH9g528qgw"},
+		// {Name: "BSC→Solana", FromToken: usdtBSC, ToToken: usdtSolana, FromAddress: "0xBc3eDD5b9c134D13E3b69fd13DEC2309Bb45f566", ToAddress: "84ib5yDqx6E6Mmeartg1xWRjaJ4TDJUudooH9g528qgw"},
+		{Name: "TRX→Solana", FromToken: usdtTron, ToToken: usdtSolana, FromAddress: "TKqWJinh1uGdHMiEr462Q8ydPEsbdNLUrY", ToAddress: "84ib5yDqx6E6Mmeartg1xWRjaJ4TDJUudooH9g528qgw"},
 		// {Name: "Solana→Base", FromToken: usdtSolana, ToToken: usdcBase},
 	}
 }

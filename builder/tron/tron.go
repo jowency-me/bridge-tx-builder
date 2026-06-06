@@ -117,6 +117,19 @@ func (b *Builder) Build(ctx context.Context, quote domain.Quote, from string, si
 		expiration = now.UnixMilli() + 60000
 	}
 
+	// FeeLimit in Tron is in SUN (the smallest unit of TRX).
+	// GasLimit and GasPrice from the provider represent estimated energy and energy price (SUN/energy).
+	// Using GasLimit directly as FeeLimit is incorrect - it must be multiplied by GasPrice.
+	feeLimit := quote.GasLimit.Mul(quote.GasPrice).BigInt().Uint64()
+	if feeLimit == 0 {
+		// Fallback: use GasLimit (protocol + fee costs in SUN) if gas-based calculation yields 0
+		feeLimit = quote.GasLimit.BigInt().Uint64()
+	}
+	if feeLimit == 0 {
+		// Last resort: 50 TRX minimum to avoid OUT_OF_ENERGY
+		feeLimit = 50000000
+	}
+
 	rawData := &core.TransactionRaw{
 		Contract: []*core.Transaction_Contract{
 			{
@@ -128,7 +141,7 @@ func (b *Builder) Build(ctx context.Context, quote domain.Quote, from string, si
 		RefBlockHash:  refBlockHash,
 		Expiration:    expiration,
 		Timestamp:     now.UnixMilli(),
-		FeeLimit:      int64(quote.EstimateGas.BigInt().Uint64()),
+		FeeLimit:      int64(feeLimit),
 	}
 
 	tx := &core.Transaction{RawData: rawData}

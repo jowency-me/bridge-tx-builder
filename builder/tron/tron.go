@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shopspring/decimal"
+
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/fbsobreira/gotron-sdk/pkg/address"
 	"github.com/fbsobreira/gotron-sdk/pkg/proto/core"
@@ -131,9 +133,18 @@ func (b *Builder) Build(ctx context.Context, quote domain.Quote, from string, si
 	// FeeLimit in Tron is in SUN (the smallest unit of TRX).
 	feeLimit := quote.GasLimit
 	if feeLimit.IsZero() {
-		// EstimateFee and GasPrice from the provider represent estimated energy and energy price (SUN/energy).
-		// Using EstimateFee directly as FeeLimit is incorrect - it must be multiplied by GasPrice.
-		feeLimit = quote.EstimateFee.Mul(quote.GasPrice)
+		if !quote.GasPrice.IsZero() {
+			// Some providers (e.g. LiFi) return energy cost (EstimateFee) and energy price
+			// (GasPrice in SUN/energy) separately. FeeLimit = energy × energy_price.
+			feeLimit = quote.EstimateFee.Mul(quote.GasPrice)
+		} else if !quote.EstimateFee.IsZero() {
+			// Other providers (e.g. deBridge) return the total estimated fee (in SUN)
+			// directly as EstimateFee, with GasPrice left as 0.
+			feeLimit = quote.EstimateFee
+		} else {
+			// Fallback minimum: 50 TRX covers most TRC-20 operations.
+			feeLimit = decimal.NewFromInt(50_000_000)
+		}
 	}
 
 	rawData := &core.TransactionRaw{

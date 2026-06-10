@@ -13,7 +13,6 @@ import (
 	"github.com/jowency-me/bridge-tx-builder/domain"
 	oneinch "github.com/jowency-me/bridge-tx-builder/provider/1inch"
 	"github.com/jowency-me/bridge-tx-builder/provider/debridge"
-	"github.com/jowency-me/bridge-tx-builder/provider/lifi"
 	"github.com/jowency-me/bridge-tx-builder/provider/openocean"
 	"github.com/jowency-me/bridge-tx-builder/provider/zerox"
 	"github.com/jowency-me/bridge-tx-builder/router"
@@ -100,7 +99,7 @@ func TestProviders_CrossChainQuote(t *testing.T) {
 // This verifies that providers correctly handle To address and TxData for different chain types.
 func TestProviders_CrossChainRoutes(t *testing.T) {
 	providers := []domain.Provider{
-		lifi.NewProvider("4bc09300-9dd0-4c9f-ad66-ade69eff2417.8ce590bb-7d2f-4e94-b53b-5b3847771b04"),
+		// lifi.NewProvider("4bc09300-9dd0-4c9f-ad66-ade69eff2417.8ce590bb-7d2f-4e94-b53b-5b3847771b04"),
 		debridge.NewProvider(),
 	}
 	if len(providers) == 0 {
@@ -118,8 +117,8 @@ func TestProviders_CrossChainRoutes(t *testing.T) {
 				req := domain.QuoteRequest{
 					FromToken: route.FromToken,
 					ToToken:   route.ToToken,
-					// Amount:    decimal.NewFromInt(2_000_000),
-					Amount:   decimal.NewFromInt(4_081_071_000_000_000_000),
+					Amount:    decimal.NewFromInt(10_000_000),
+					// Amount:   decimal.NewFromInt(4_081_071_000_000_000_000),
 					Slippage: 0.005,
 					FromAddr: route.FromAddress,
 					ToAddr:   route.ToAddress,

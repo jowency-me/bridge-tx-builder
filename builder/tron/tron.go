@@ -74,9 +74,20 @@ func (b *Builder) Build(ctx context.Context, quote domain.Quote, from string, si
 
 	// Build a TriggerSmartContract transaction for token swaps/bridges.
 	// For native TRX transfers, a TransferContract would be used instead.
-	contractAddr, err := address.Base58ToAddress(quote.To)
+	var contractAddr address.Address
+	contractAddr, err = address.Base58ToAddress(quote.To)
 	if err != nil {
-		return nil, errors.New("invalid to address")
+		// Some providers (e.g. debridge) return Tron contract addresses
+		// in EVM hex format (0x...) instead of Tron base58 format.
+		// Convert by prepending the Tron prefix byte (0x41).
+		hexStr := strings.TrimPrefix(quote.To, "0x")
+		if len(hexStr) == 40 {
+			hexStr = "41" + hexStr
+		}
+		contractAddr, err = address.HexToAddress(hexStr)
+		if err != nil || contractAddr == nil || len(contractAddr) == 0 {
+			return nil, errors.New("invalid to address")
+		}
 	}
 
 	val := quote.TxValue.BigInt()

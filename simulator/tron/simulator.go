@@ -43,6 +43,7 @@ type triggerConstantContractResponse struct {
 	EnergyUsed     uint64   `json:"energy_used"`
 	Receipt        struct {
 		EnergyUsageTotal uint64 `json:"energy_usage_total"`
+		Result           string `json:"result"`
 	} `json:"receipt"`
 }
 
@@ -134,7 +135,7 @@ func (s *Simulator) Simulate(ctx context.Context, tx *domain.Transaction) (*doma
 		}, nil
 	}
 
-	// Tron returns result.code == "SUCCESS" on success.
+	// Check the API-level result code first (request validity).
 	if result.Result.Code != "SUCCESS" && result.Result.Code != "" {
 		reason := result.Result.Message
 		if reason == "" {
@@ -143,6 +144,22 @@ func (s *Simulator) Simulate(ctx context.Context, tx *domain.Transaction) (*doma
 		return &domain.SimulationResult{
 			Success:      false,
 			RevertReason: reason,
+		}, nil
+	}
+
+	// Check the contract-level execution result (receipt.result).
+	// Tron's triggerconstantcontract may return result.code == "SUCCESS"
+	// even when the contract reverts — receipt.result is the authoritative
+	// field for execution outcome.
+	if result.Receipt.Result == "REVERT" {
+		revertReason := "contract reverted"
+		if len(result.ConstantResult) > 0 && len(result.ConstantResult[0]) >= 10 {
+			// Try to extract revert reason from constant_result
+			revertReason = result.ConstantResult[0]
+		}
+		return &domain.SimulationResult{
+			Success:      false,
+			RevertReason: fmt.Sprintf("execution reverted: %s", revertReason),
 		}, nil
 	}
 

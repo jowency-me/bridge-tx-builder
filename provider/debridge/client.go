@@ -14,6 +14,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -157,6 +158,10 @@ func (c *Client) Quote(ctx context.Context, params QuoteParams) (*QuoteResponse,
 
 // Status fetches transaction status from the provider API.
 func (c *Client) Status(ctx context.Context, txID string) (*StatusResponse, error) {
+	// deBridge API requires txID to match /^0x[0-9a-fA-F]{64}$/
+	if !strings.HasPrefix(txID, "0x") {
+		txID = "0x" + txID
+	}
 	u, err := url.Parse(c.baseURL + "/v1.0/dln/order/" + txID + "/status")
 	if err != nil {
 		return nil, err

@@ -84,8 +84,8 @@ func (b *Builder) Build(ctx context.Context, quote domain.Quote, from string, si
 		if len(hexStr) == 40 {
 			hexStr = "41" + hexStr
 		}
-		contractAddr, err = address.HexToAddress(hexStr)
-		if err != nil || contractAddr == nil || len(contractAddr) == 0 {
+		contractAddr = address.HexToAddress(hexStr)
+		if contractAddr == nil || len(contractAddr) == 0 {
 			return nil, errors.New("invalid to address")
 		}
 	}

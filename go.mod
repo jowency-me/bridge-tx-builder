@@ -11,6 +11,8 @@ require (
 	google.golang.org/protobuf v1.36.11
 )
 
+replace github.com/fbsobreira/gotron-sdk => github.com/openweb3-io/gotron-sdk v0.0.0-20240607075808-eaeb7c6a4dad
+
 require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProjectZKM/Ziren/crates/go-runtime/zkvm_runtime v0.0.0-20251001021608-1fe7b43fc4d6 // indirect

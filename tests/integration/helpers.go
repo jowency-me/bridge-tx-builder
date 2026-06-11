@@ -15,15 +15,18 @@ import (
 	"github.com/jowency-me/bridge-tx-builder/domain"
 	oneinch "github.com/jowency-me/bridge-tx-builder/provider/1inch"
 	"github.com/jowency-me/bridge-tx-builder/provider/across"
+	"github.com/jowency-me/bridge-tx-builder/provider/allbridge"
 	"github.com/jowency-me/bridge-tx-builder/provider/celer"
 	"github.com/jowency-me/bridge-tx-builder/provider/debridge"
 	"github.com/jowency-me/bridge-tx-builder/provider/hop"
 	"github.com/jowency-me/bridge-tx-builder/provider/lifi"
+	"github.com/jowency-me/bridge-tx-builder/provider/mayan"
 	"github.com/jowency-me/bridge-tx-builder/provider/openocean"
 	"github.com/jowency-me/bridge-tx-builder/provider/rango"
 	"github.com/jowency-me/bridge-tx-builder/provider/socket"
 	"github.com/jowency-me/bridge-tx-builder/provider/squid"
 	"github.com/jowency-me/bridge-tx-builder/provider/swing"
+	"github.com/jowency-me/bridge-tx-builder/provider/symbiosis"
 	"github.com/jowency-me/bridge-tx-builder/provider/thorchain"
 	"github.com/jowency-me/bridge-tx-builder/provider/zerox"
 	"github.com/shopspring/decimal"
@@ -134,6 +137,9 @@ func makeProviders(t *testing.T) []domain.Provider {
 		celer.NewProvider(),
 		thorchain.NewProvider(),
 		openocean.NewProvider(),
+		symbiosis.NewProvider(),
+		allbridge.NewProvider(),
+		mayan.NewProvider(),
 	}
 
 	if key := os.Getenv("RANGO_API_KEY"); key != "" {

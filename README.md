@@ -24,10 +24,13 @@ Go library for querying cross-chain quotes, selecting routes, building sign-read
 - Hop
 - Celer cBridge
 - Socket
+- Symbiosis
+- Allbridge Core
+- Mayan
 
 ## Provider Endpoints
 
-The provider clients target production mainnet APIs only:
+The provider clients target production mainnet APIs. Most are public hosted endpoints; Allbridge Core's transaction API is a self-hosted Docker service and Mayan's `/build` uses the official transaction-builder (Mayan-hosted with an API key, or self-hosted) — both are configured via `WithBaseURL`:
 
 | Provider | Production endpoint used | Transaction data |
 |---|---|---|
@@ -44,6 +47,12 @@ The provider clients target production mainnet APIs only:
 | Hop | `https://api.hop.exchange/v1/quote` | quote-only in current adapter |
 | Celer cBridge | `https://cbridge-prod2.celer.app/v2/estimateAmt` | quote-only in current adapter |
 | THORChain | `https://thornode.ninerealms.com/thorchain/quote/swap` | memo/inbound quote only |
+| Symbiosis | `https://api.symbiosis.finance/crosschain/v1/swap` | `tx` (public, returns ready calldata) |
+| Mayan | `https://tx-builder.mayan.finance/quote` + `POST /build` | `transaction` (build needs `WithAPIKey` or self-hosted tx-builder) |
+| Allbridge Core | `/bridge/receive/calculate` + `/raw/bridge` on the self-hosted Core REST API (`WithBaseURL`, default `http://localhost:3000`) | `rawTransaction` |
+| Symbiosis | `https://api.symbiosis.finance/crosschain/v1/swapping/exact_in` | `tx` |
+| Allbridge | `https://core.api.allbridgecoreapi.net/raw/swap` | `rawTransaction` |
+| Mayan | `https://price-api.mayan.finance/v3/quote` + `/v3/submit/swift` | `unsignedTransaction` / `serializedTransaction` |
 
 Single-chain DEX adapters (`1inch`, `0x`, `OpenOcean`) reject cross-chain requests before calling their APIs.
 
@@ -140,7 +149,9 @@ See `example_test.go` for end-to-end EVM, Solana, and Tron flows (run with `-tag
 | Swing | `swing.NewProvider(projectID, opts...)` |
 | 1inch | `inch.NewProvider(apiKey, opts...)` |
 | 0x | `zerox.NewProvider(apiKey, opts...)` |
-| Squid / deBridge / Across / Hop / Celer / Socket / OpenOcean / THORChain | `NewProvider(opts...)` (no required arg; some honor `WithAPIKey` / `WithIntegratorID` options) |
+| Mayan | `mayan.NewProvider(opts...)` — `/quote` is keyless; `/build` on the Mayan-hosted instance needs `WithAPIKey(key)` (self-hosting the tx-builder needs none, set via `WithBaseURL`). |
+| Allbridge Core | `allbridge.NewProvider(WithBaseURL(url), opts...)` — wraps the self-hosted Allbridge Core REST API (Docker, default `http://localhost:3000`); optional `WithMessenger`. |
+| Squid / deBridge / Across / Hop / Celer / Socket / OpenOcean / THORChain / Symbiosis | `NewProvider(opts...)` (no required arg; some honor `WithAPIKey` / `WithIntegratorID` options) |
 
 ## Builders & Simulators
 

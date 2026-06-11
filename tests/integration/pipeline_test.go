@@ -49,7 +49,7 @@ func TestPipeline_QuoteBuildSimulate(t *testing.T) {
 		To:          usdcEthereum.Address,
 		TxData:      evmTransferCalldata("0x1111111111111111111111111111111111111111", big.NewInt(1)),
 		TxValue:     decimal.Zero,
-		EstimateGas:  decimal.NewFromInt(300000),
+		EstimateGas: decimal.NewFromInt(300000),
 		GasLimit:    decimal.NewFromInt(300000),
 		GasTipCap:   decimal.NewFromBigInt(tipCap, 0),
 		GasFeeCap:   decimal.NewFromBigInt(feeCap, 0),
